@@ -10,6 +10,7 @@ import Terms from "./pages/Terms";
 import { initGA, trackPageView } from "./utils/analytics";
 import DomainMigrationBanner from "./components/ui/DomainMigrationBanner";
 import { renderDocRoutes } from "./docs/DocRoutes";
+import HomepageConcept from "./pages/HomepageConcept";
 
 function getShellClass(pathname: string): string {
 	if (pathname === "/") {
@@ -54,6 +55,7 @@ function AppInner() {
 	const [isLoaded, setIsLoaded] = useState(false);
 	const location = useLocation();
 	const shellClass = getShellClass(location.pathname);
+	const isConceptRoute = location.pathname === "/concepts" || location.pathname.startsWith("/concepts/");
 
 	useEffect(() => {
 		// initialize GA
@@ -78,19 +80,20 @@ function AppInner() {
 				<Analytics />
 				<ScrollTopOnDocs />
 				<div className={shellClass}>
-					<DomainMigrationBanner />
-					<Navbar />
+					{!isConceptRoute ? <DomainMigrationBanner /> : null}
+					{!isConceptRoute ? <Navbar /> : null}
 					<main
 						className={`flex-1 transition-opacity duration-300 ${isLoaded ? "opacity-100" : "opacity-0"}`}
 					>
 						<Routes>
 							<Route path="/" element={<Homepage />} />
+							<Route path="/concepts" element={<HomepageConcept />} />
 							<Route path="/privacy" element={<Privacy />} />
 							<Route path="/terms" element={<Terms />} />
 							{renderDocRoutes()}
 						</Routes>
 					</main>
-					<Footer />
+					{!isConceptRoute ? <Footer /> : null}
 				</div>
 			</LanguageProvider>
 		</ThemeProvider>
