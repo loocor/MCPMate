@@ -13,6 +13,7 @@ import {
 	setApiBaseUrl,
 	systemApi,
 } from "../../lib/api";
+import { isBoardDemoMode } from "../../lib/demo-mode";
 import { isTauriEnvironmentSync } from "../../lib/platform";
 import { useAppStore } from "../../lib/store";
 import type { ServerSource } from "../../lib/types";
@@ -136,22 +137,27 @@ export function Layout() {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const { t, i18n } = useTranslation();
+	const demoMode = isBoardDemoMode();
 	const { data: onboardingResp } = useQuery({
 		queryKey: ["onboardingStatus"],
 		queryFn: () => onboardingApi.getStatus(),
+		enabled: !demoMode,
 		staleTime: 60_000,
 		retry: false,
 		refetchOnWindowFocus: false,
 	});
 
 	React.useEffect(() => {
+		if (demoMode) {
+			return;
+		}
 		if (location.pathname === "/onboarding") {
 			return;
 		}
 		if (onboardingResp?.data?.completed === false) {
 			navigate("/onboarding", { replace: true });
 		}
-	}, [location.pathname, navigate, onboardingResp?.data?.completed]);
+	}, [demoMode, location.pathname, navigate, onboardingResp?.data?.completed]);
 
 	React.useEffect(() => {
 		const staleMs = 30 * 1000;

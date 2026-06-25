@@ -1,4 +1,5 @@
 import type { ClientConfigFileParse, ClientConfigFileState, TransportRuleData } from "./types";
+import { isBoardDemoMode } from "./demo-mode";
 
 export type AdminDiscoverySurface = "onboarding" | "extension";
 export type AdminDiscoveryPlatform = "macos" | "windows" | "linux";
@@ -88,6 +89,113 @@ export interface AdminClientUpdatePayload {
 	clear_config_file_parse: boolean;
 	transports?: Record<string, TransportRuleData>;
 	clear_transports: boolean;
+}
+
+function demoStdioTransport(): Record<string, TransportRuleData> {
+	return {
+		stdio: {
+			command_field: "command",
+			args_field: "args",
+			env_field: "env",
+			selected: true,
+		},
+	};
+}
+
+function demoClientCatalog(platform?: AdminDiscoveryPlatform): AdminDiscoveryClientCatalog {
+	const macos = platform === "macos" || !platform;
+	return {
+		diagnostics: [],
+		clients: [
+			{
+				identifier: "claude_desktop",
+				displayName: "Claude Desktop",
+				configFileChoice: "with_config_file",
+				configPath: macos
+					? "/Users/demo/Library/Application Support/Claude/claude_desktop_config.json"
+					: "",
+				configFileParseFormat: "json",
+				configFileParseContainerType: "standard",
+				configFileParseContainerKeysText: "mcpServers",
+				description: "Desktop assistant client with a local MCP server config file.",
+				homepageUrl: "https://claude.ai/download",
+				docsUrl: "https://support.anthropic.com",
+				supportUrl: "https://support.anthropic.com",
+				logoUrl: "",
+				tags: ["desktop", "chat"],
+				supportedTransports: ["stdio"],
+				transports: demoStdioTransport(),
+			},
+			{
+				identifier: "cursor",
+				displayName: "Cursor",
+				configFileChoice: "with_config_file",
+				configPath: macos ? "/Users/demo/.cursor/mcp.json" : "",
+				configFileParseFormat: "json",
+				configFileParseContainerType: "standard",
+				configFileParseContainerKeysText: "mcpServers",
+				description: "Editor workflow with project-local MCP capabilities.",
+				homepageUrl: "https://cursor.com",
+				docsUrl: "https://docs.cursor.com",
+				supportUrl: "https://cursor.com",
+				logoUrl: "",
+				tags: ["editor", "coding"],
+				supportedTransports: ["stdio", "streamable_http"],
+				transports: {
+					...demoStdioTransport(),
+					streamable_http: {
+						url_field: "url",
+						headers_field: "headers",
+					},
+				},
+			},
+		],
+	};
+}
+
+function demoServerCatalog(): AdminDiscoveryServerCandidate[] {
+	return [
+		{
+			key: "demo-admin:context7",
+			name: "Context7",
+			kind: "stdio",
+			command: "npx",
+			args: ["-y", "@upstash/context7-mcp"],
+			env: {},
+			categories: ["documentation", "coding"],
+			tags: ["documentation", "coding"],
+			description: "Fetch current library docs and examples for coding workflows.",
+			logoUrl: "",
+			source_clients: ["MCPMate"],
+			source_client_ids: [],
+			import_config: {
+				type: "stdio",
+				command: "npx",
+				args: ["-y", "@upstash/context7-mcp"],
+				source: { type: "catalog", ref: "context7" },
+			},
+		},
+		{
+			key: "demo-admin:browser-tools",
+			name: "Browser Tools",
+			kind: "stdio",
+			command: "npx",
+			args: ["-y", "@agentdeskai/browser-tools-mcp"],
+			env: {},
+			categories: ["browser", "automation"],
+			tags: ["browser", "automation"],
+			description: "Inspect pages, screenshots, and browser console output from MCP clients.",
+			logoUrl: "",
+			source_clients: ["MCPMate"],
+			source_client_ids: [],
+			import_config: {
+				type: "stdio",
+				command: "npx",
+				args: ["-y", "@agentdeskai/browser-tools-mcp"],
+				source: { type: "catalog", ref: "browser-tools" },
+			},
+		},
+	];
 }
 
 export interface AdminDiscoveryServerCandidate {
@@ -209,6 +317,10 @@ export async function fetchAdminDiscoveryClients(options: AdminDiscoveryQuery): 
 }
 
 export async function fetchAdminDiscoveryClientCatalog(options: AdminDiscoveryQuery): Promise<AdminDiscoveryClientCatalog> {
+	if (isBoardDemoMode()) {
+		return demoClientCatalog(options.platform);
+	}
+
 	const envelope = await fetchAdminDiscoveryEnvelope("/discovery/clients", options);
 	const clients: AdminDiscoveryClientCandidate[] = [];
 	const diagnostics: AdminDiscoveryDiagnostic[] = [];
@@ -227,6 +339,10 @@ export async function fetchAdminDiscoveryClientCatalog(options: AdminDiscoveryQu
 }
 
 export async function fetchAdminDiscoveryServers(options: AdminDiscoveryQuery): Promise<AdminDiscoveryServerCandidate[]> {
+	if (isBoardDemoMode()) {
+		return demoServerCatalog().slice(0, options.limit ?? undefined);
+	}
+
 	const envelope = await fetchAdminDiscoveryEnvelope("/discovery/servers", options);
 	return discoveryItems(envelope, "servers").flatMap((item) => {
 		const candidate = adminDiscoveryServerToOnboardingCandidate(item);

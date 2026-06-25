@@ -1,4 +1,6 @@
 import { API_BASE_URL } from "./api";
+import { handleDemoApiRequest } from "./demo-api";
+import { isBoardDemoMode } from "./demo-mode";
 import type { ClientConfigFileParse } from "./types";
 
 export interface OnboardingStatusData {
@@ -79,6 +81,10 @@ async function fetchOnboarding<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if (isBoardDemoMode()) {
+    return handleDemoApiRequest<T>(path, init);
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "include",
