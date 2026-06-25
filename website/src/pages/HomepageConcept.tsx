@@ -1,33 +1,19 @@
-import { useCallback, useEffect, useState, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
 	Activity,
-	AppWindow,
 	ArrowRight,
-	Bell,
-	BookText,
-	BookOpen,
-	Bug,
 	CheckCircle2,
-	CircleUserRound,
 	Database,
-	FileSearch,
-	KeyRound,
 	Library,
-	LayoutDashboard,
 	LockKeyhole,
-	Menu,
-	MessageSquare,
-	Moon,
+	Maximize2,
+	Minimize2,
 	PanelRightOpen,
 	RefreshCw,
 	Search,
-	Server,
-	Settings,
 	ShieldCheck,
 	SlidersHorizontal,
 	Sparkles,
-	Square,
-	Store,
 	type LucideIcon,
 } from "lucide-react";
 import logoImage from "../assets/images/logo.svg";
@@ -161,213 +147,6 @@ const conceptTranslations: Record<Language, Record<string, string>> = {
 		"Users can start from what they need to do, then inspect the raw tools, prompts, resources, and templates behind it.": "用户可以从要完成的事情开始，再检查背后的原始工具、提示词、资源和模板。",
 		"Request-scoped governance is later": "请求级治理属于后续阶段",
 		"Client, project, role, actor, and operation metadata may eventually shape access decisions at the moment of use.": "客户端、项目、角色、操作者和操作元数据，未来可能在使用当下参与访问决策。",
-		"Dashboard": "控制台",
-		"Skills over MCP overview": "Skills over MCP 总览",
-		"A local operating surface for packaging raw MCP capabilities into reviewable, reusable skill-shaped work units.": "一个本地运行表面，用来把原始 MCP 能力封装成可审查、可复用、面向 skill 的工作单元。",
-		"Running": "运行中",
-		"Core": "核心",
-		"healthy": "健康",
-		"Skills": "Skills",
-		"8 ready": "8 个就绪",
-		"Clients": "客户端",
-		"4 bound": "4 个已绑定",
-		"Capability source": "能力来源",
-		"tools, prompts, resources, templates": "工具、提示词、资源、模板",
-		"Skill layer": "Skill 层",
-		"intent, selected capability, validation, avoid rules": "意图、选定能力、验证、规避规则",
-		"Distribution": "分发",
-		"profiles and client modes decide what each app receives": "配置集和客户端模式决定每个应用接收什么",
-		"Capability discovery queue": "能力发现队列",
-		"Market and browser handoff move scattered MCP sources into one review path before anything is installed.": "Market 和浏览器转交会在安装前把分散的 MCP 来源带入同一条审查路径。",
-		"Reviewing": "审查中",
-		"Drafts": "草稿",
-		"4 queued": "4 个排队中",
-		"Sources": "来源",
-		"3 types": "3 类",
-		"Checks": "检查",
-		"ready": "就绪",
-		"Browser handoff": "浏览器转交",
-		"source page, snippet, and detected format retained": "保留来源页面、片段和检测到的格式",
-		"Market record": "Market 记录",
-		"server metadata and docs context stay attached": "服务器元数据和文档上下文保持附着",
-		"Import review": "导入审查",
-		"duplicates and blockers checked before save": "保存前检查重复项和阻塞项",
-		"Servers": "服务器",
-		"Reviewed server library": "已审查服务器库",
-		"Servers remain the source layer: MCPMate imports them, previews their capabilities, and keeps origin context before packaging.": "服务器仍然是来源层：MCPMate 导入它们、预览能力，并在封装前保留来源上下文。",
-		"Import ready": "可导入",
-		"Ready": "就绪",
-		"Desktop": "桌面端",
-		"MCPMate Desktop is managing the local core and will stop it when the app quits.": "MCPMate 桌面端正在管理本地核心，并会在应用退出时停止它。",
-		"v0.1.0": "v0.1.0",
-		"Blocked": "阻塞",
-		"Browser extension handoff": "浏览器扩展转交",
-		"source page and metadata preserved": "保留来源页面和元数据",
-		"Capability preview": "能力预览",
-		"Dry-run validation": "Dry-run 验证",
-		"duplicates and blockers checked first": "先检查重复项和阻塞项",
-		"Client distribution control": "客户端分发控制",
-		"MCPMate distributes packaged capability through the right client mode instead of copying every server into every app.": "MCPMate 通过合适的客户端模式分发封装后的能力，而不是把每个服务器复制到每个应用里。",
-		"Targets": "目标",
-		"6 known": "6 个已知",
-		"Writable": "可写",
-		"Mode": "模式",
-		"Hosted": "Hosted",
-		"Transparent": "Transparent",
-		"write selected servers to native config": "将选定服务器写入原生配置",
-		"keep MCPMate in the local runtime path": "让 MCPMate 留在本地运行路径中",
-		"Unify": "Unify",
-		"start from a smaller control surface": "从更小的控制表面开始",
-		"Progressive skill policy": "渐进式 skill 策略",
-		"Profiles are the current policy bridge between skill-shaped intent and the concrete MCP capabilities a client can see.": "配置集是当前连接 skill 形态意图与客户端可见具体 MCP 能力的策略桥梁。",
-		"Exposure scoped": "暴露面已限定",
-		"42 -> 11": "42 -> 11",
-		"8 -> 3": "8 -> 3",
-		"2 bound": "2 个已绑定",
-		"Operating policy": "运行策略",
-		"servers and capabilities grouped by workflow": "按工作流组织服务器和能力",
-		"Client source": "客户端来源",
-		"active, shared, or custom profile": "活动、共享或自定义配置集",
-		"Live exposure": "实时暴露面",
-		"runtime view changes with profile edits": "运行时视图随配置集编辑变化",
-		"Evidence before guessing": "先看证据，再判断",
-		"Runtime status, bindings, Inspector calls, logs, and backups show what changed and where to investigate next.": "运行时状态、绑定、Inspector 调用、日志和备份会显示变化内容和下一步调查位置。",
-		"Verified": "已验证",
-		"visible": "可见",
-		"Inspector": "Inspector",
-		"passed": "通过",
-		"Audit": "审计",
-		"recorded": "已记录",
-		"Readiness": "就绪状态",
-		"server status and cache health are visible": "服务器状态和缓存健康度可见",
-		"Inspector calls": "Inspector 调用",
-		"direct and proxy-path behavior compared": "对比直接路径和代理路径行为",
-		"Maintenance": "维护",
-		"refresh checks after heavy workflow changes": "重度工作流变更后刷新检查",
-		"Settings": "设置",
-		"Operator preferences": "操作者偏好",
-		"Language, theme, default client mode, backup policy, and advanced visibility belong in the product shell, not in the marketing chrome.": "语言、主题、默认客户端模式、备份策略和高级可见性应该属于产品外壳，而不是营销页面装饰。",
-		"Saved locally": "已本地保存",
-		"Language": "语言",
-		"English": "English",
-		"Theme": "主题",
-		"System": "跟随系统",
-		"Language and theme are app-level preferences because they change the Board experience itself.": "语言和主题是应用级偏好，因为它们会改变 Board 本身的使用体验。",
-		"Local setting": "本地设置",
-		"Default client mode": "默认客户端模式",
-		"Backup policy": "备份策略",
-		"Before apply": "应用前",
-		"Advanced nav": "高级导航",
-		"Opt-in": "按需开启",
-		"English, Chinese, and Japanese are first-class Board settings": "英文、中文和日文都是 Board 的一等设置",
-		"system, light, and dark are explicit operator choices": "跟随系统、浅色、深色都是明确的操作者选择",
-		"API Docs and debug surfaces stay opt-in": "API 文档和调试表面保持按需开启",
-		"About": "关于",
-		"About MCPMate": "关于 MCPMate",
-		"Product identity, version channel, update notes, license posture, and local operating boundary belong inside the app too.": "产品身份、版本通道、更新说明、许可姿态和本地运行边界也应该在应用内呈现。",
-		"Skills release": "Skills 版本",
-		"Version": "版本",
-		"Skills channel": "Skills 通道",
-		"License": "许可",
-		"Platform": "平台",
-		"macOS · Windows · Linux": "macOS · Windows · Linux",
-		"Latest focus": "最近重点",
-		"skills over MCP, browser handoff, runtime evidence": "skills over MCP、浏览器转交、运行证据",
-		"Boundary": "边界",
-		"local-first and team-ready, not a cloud gateway claim": "本地优先且具备团队化姿态，但不是云网关承诺",
-		"Next app update": "下一次应用更新",
-		"make About useful for release notes and proof": "让关于页承载版本说明和证明材料",
-		"The About surface carries release context, license posture, platform support, and the current operating boundary.": "关于界面承载发布上下文、许可姿态、平台支持和当前运行边界。",
-		"Platforms": "平台",
-		"macOS, Windows, Linux": "macOS、Windows、Linux",
-		"Package capability as skill-shaped workflows.": "把能力封装成 skill 形态的工作流。",
-		"Preserve browser and Market import evidence.": "保留浏览器和 Market 导入证据。",
-		"Keep enterprise gateway claims out of the current boundary.": "避免在当前边界内宣称企业网关能力。",
-		"Logs": "日志",
-		"Operational evidence timeline": "运行证据时间线",
-		"Logs keep profile changes, client apply actions, imports, backups, restores, and runtime checks close to the workflow.": "日志将配置集变更、客户端应用、导入、备份、恢复和运行检查保留在工作流附近。",
-		"Events indexed": "事件已索引",
-		"Profile events": "配置集事件",
-		"Client applies": "客户端应用",
-		"Restores": "恢复",
-		"Change source": "变更来源",
-		"profile edits, imports, and client writes are separated": "配置集编辑、导入和客户端写入被区分记录",
-		"Evidence trail": "证据链",
-		"who changed what, when, and which target was touched": "谁在何时改了什么、触及了哪个目标",
-		"Recovery clue": "恢复线索",
-		"backup and restore actions stay next to the risky operation": "备份和恢复动作紧邻风险操作",
-		"Secrets": "密钥",
-		"Credential custody surface": "凭据托管表面",
-		"Secrets keeps sensitive runtime inputs managed locally instead of spreading raw values through copied client configs.": "Secrets 在本地管理敏感运行输入，避免原始值散落在复制出来的客户端配置中。",
-		"Protected": "已保护",
-		"Linked fields": "关联字段",
-		"Exports": "导出",
-		"explicit": "显式",
-		"Local custody": "本地托管",
-		"sensitive values stay closer to the runtime path": "敏感值更靠近运行路径",
-		"Install flow": "安装流程",
-		"server setup can reference stored secrets without pasting values everywhere": "服务器设置可引用已存密钥，而不是到处粘贴明文",
-		"Trade-off": "取舍",
-		"transparent export remains deliberate when native config needs it": "当原生配置需要时，透明导出仍是明确选择",
-		"Account": "账户",
-		"Local session boundary": "本地会话边界",
-		"Account state stays visually separate from capability packaging so users can distinguish product session from MCP runtime control.": "账户状态与能力封装保持视觉分离，让用户区分产品会话和 MCP 运行时控制。",
-		"Local session": "本地会话",
-		"Plan": "计划",
-		"workspace": "工作空间",
-		"Sync": "同步",
-		"off": "关闭",
-		"Owner": "所有者",
-		"local": "本地",
-		"Identity": "身份",
-		"shown as shell state, not capability policy": "作为外壳状态呈现，而不是能力策略",
-		"Future": "未来",
-		"team or cloud controls would need their own explicit surface": "团队或云端控制需要独立明确的表面",
-		"Local Core": "本地核心",
-		"Service": "服务",
-		"running": "运行中",
-		"The local MCPMate core is available for dashboard, API, and client runtime.": "本地 MCPMate 核心可供控制台、API 和客户端运行时使用。",
-		"Refresh core status": "刷新核心状态",
-		"Stop local core": "停止本地核心",
-		"Start local core": "启动本地核心",
-		"System Status": "系统状态",
-		"Status": "状态",
-		"Uptime": "运行时长",
-		"2h 14m": "2 小时 14 分钟",
-		"Total Profiles": "配置集总数",
-		"Active Profiles": "活动配置集",
-		"Visible tools": "可见工具",
-		"Total Clients": "客户端总数",
-		"Approved": "已批准",
-		"Total Servers": "服务器总数",
-		"Connected": "已连接",
-		"Imports": "导入",
-		"Metrics": "指标",
-		"MCPMate process CPU and memory utilization sampled every 30 seconds": "每 30 秒采样 MCPMate 进程 CPU 和内存使用率",
-		"Capability exposure": "能力暴露面",
-		"Profile filtering keeps client context smaller without deleting source capability.": "配置集过滤让客户端上下文更小，同时不删除来源能力。",
-		"Research profile": "调研配置集",
-		"Coding profile": "编码配置集",
-		"Ops profile": "运维配置集",
-		"11 visible tools": "11 个可见工具",
-		"16 visible tools": "16 个可见工具",
-		"9 visible tools": "9 个可见工具",
-		"Collapse sidebar": "收起侧边栏",
-		"Token Savings": "Token 节省",
-		"Estimated context savings from profile filtering": "基于配置集过滤估算的上下文节省",
-		"API Docs": "API 文档",
-		"Local API reference": "本地 API 参考",
-		"API Docs stays in Advanced because it is useful for automation and debugging, not required for everyday MCP workflow setup.": "API 文档保留在高级区，因为它服务自动化和调试，而不是日常 MCP 工作流配置的必需入口。",
-		"Endpoints": "端点",
-		"Schema": "Schema",
-		"Access": "访问",
-		"available": "可用",
-		"developer": "开发者",
-		"Automation": "自动化",
-		"scripts can use the same local operating state": "脚本可以使用同一份本地运行状态",
-		"Debugging": "调试",
-		"inspect request and response shape when the UI is not enough": "当 UI 不足以定位问题时检查请求和响应结构",
-		"local API access is separate from cloud control-plane claims": "本地 API 访问与云控制平面承诺是两回事",
 		"Quick start": "快速开始",
 		"Package one real MCP workflow.": "封装一个真实 MCP 工作流。",
 		"Start with the path to first value: install MCPMate, import one real source, shape the capability into a workflow, then connect one AI client.": "从第一价值路径开始：安装 MCPMate，导入一个真实来源，把能力整理成工作流，然后连接一个 AI 客户端。",
@@ -394,17 +173,38 @@ const conceptTranslations: Record<Language, Record<string, string>> = {
 		"Documentation": "文档",
 		"Changelog": "更新日志",
 		"Roadmap": "路线图",
-		"Common portals": "常见入口",
 		"Chrome extension": "Chrome 扩展",
 		"Edge extension": "Edge 扩展",
 		"GitHub": "GitHub",
 		"Email": "邮箱",
 		"Privacy": "隐私",
 		"Terms": "条款",
+		"Discord": "Discord",
+		"© 2026 MCPMate": "© 2026 MCPMate",
 		"Skills over MCP: package local server capability into inspectable workflows, then distribute it to the AI clients that should use it.": "Skills over MCP：把本地服务器能力封装成可检查的工作流，再分发给真正应该使用它的 AI 客户端。",
 		"© {year} MCPMate. All rights reserved.": "© {year} MCPMate. 保留所有权利。",
 		"MCPMate Progressive MCP Management Homepage Concept": "MCPMate 渐进式 MCP 管理首页概念",
 		"A homepage concept for MCPMate's progressive MCP management narrative.": "面向 MCPMate 渐进式 MCP 管理叙事的首页概念。",
+		"Board demo target": "Board demo 目标",
+		"Embedded board-owned demo surface": "嵌入由 board 拥有的 demo 表面",
+		"Loaded from a board-owned demo route with mock MCPMate data and no persisted writes.": "从 board 拥有的 demo 路由加载，使用 MCPMate mock 数据且不持久化写入。",
+		"Loading board demo...": "正在加载 board demo...",
+		"Checking board demo target...": "正在检查 board demo 目标...",
+		"Board demo target is not reachable.": "Board demo 目标当前不可访问。",
+		"Start the board demo server, then reload this frame.": "启动 board demo server 后，重新加载这个 frame。",
+		"Open demo target": "打开 demo 目标",
+		"Reload demo frame": "重新加载 demo frame",
+		"onboarding": "onboarding",
+		"overview": "overview",
+		"profiles": "profiles",
+		"clients": "clients",
+		"servers": "servers",
+		"market": "market",
+		"runtime": "runtime",
+		"api docs": "api docs",
+		"security": "security",
+		"Maximize demo window": "最大化 demo 窗口",
+		"Restore demo window": "恢复 demo 窗口",
 	},
 };
 
@@ -433,255 +233,6 @@ const conceptNavLinks = [
 	{ href: "#control", label: "Nav Control" },
 	{ href: "#trust", label: "Nav Trust" },
 ];
-
-type DesktopModuleKey =
-	| "dashboard"
-	| "profiles"
-	| "clients"
-	| "servers"
-	| "market"
-	| "audit"
-	| "secrets"
-	| "runtime"
-	| "apiDocs"
-	| "account"
-	| "settings"
-	| "about";
-
-const desktopMainModuleOrder: DesktopModuleKey[] = ["dashboard", "profiles", "clients", "servers", "market"];
-const desktopAdvancedModuleOrder: DesktopModuleKey[] = ["audit", "secrets", "runtime", "apiDocs"];
-const desktopFooterModuleOrder: DesktopModuleKey[] = ["account", "settings"];
-
-type DesktopSidebarModuleButtonProps = {
-	moduleKey: DesktopModuleKey;
-	activeModule: DesktopModuleKey;
-	onModuleChange: (moduleKey: DesktopModuleKey) => void;
-};
-
-type DesktopSidebarModuleGroupProps = {
-	label?: string;
-	moduleKeys: DesktopModuleKey[];
-	activeModule: DesktopModuleKey;
-	onModuleChange: (moduleKey: DesktopModuleKey) => void;
-};
-
-const desktopModules: Record<
-	DesktopModuleKey,
-	{
-		label: string;
-		title: string;
-		body: string;
-		icon: LucideIcon;
-		status: string;
-		stats: Array<[string, string]>;
-		rows: Array<[string, string]>;
-	}
-> = {
-	dashboard: {
-		label: "Dashboard",
-		title: "Skills over MCP overview",
-		body: "A local operating surface for packaging raw MCP capabilities into reviewable, reusable skill-shaped work units.",
-		icon: LayoutDashboard,
-		status: "Running",
-		stats: [
-			["Core", "healthy"],
-			["Skills", "8 ready"],
-			["Clients", "4 bound"],
-		],
-		rows: [
-			["Capability source", "tools, prompts, resources, templates"],
-			["Skill layer", "intent, selected capability, validation, avoid rules"],
-			["Distribution", "profiles and client modes decide what each app receives"],
-		],
-	},
-	market: {
-		label: "Market",
-		title: "Capability discovery queue",
-		body: "Market and browser handoff move scattered MCP sources into one review path before anything is installed.",
-		icon: Store,
-		status: "Reviewing",
-		stats: [
-			["Drafts", "4 queued"],
-			["Sources", "3 types"],
-			["Checks", "ready"],
-		],
-		rows: [
-			["Browser handoff", "source page, snippet, and detected format retained"],
-			["Market record", "server metadata and docs context stay attached"],
-			["Import review", "duplicates and blockers checked before save"],
-		],
-	},
-	servers: {
-		label: "Servers",
-		title: "Reviewed server library",
-		body: "Servers remain the source layer: MCPMate imports them, previews their capabilities, and keeps origin context before packaging.",
-		icon: Server,
-		status: "Import ready",
-		stats: [
-			["Drafts", "4"],
-			["Ready", "12"],
-			["Blocked", "1"],
-		],
-		rows: [
-			["Browser extension handoff", "source page and metadata preserved"],
-			["Capability preview", "tools, prompts, resources, templates"],
-			["Dry-run validation", "duplicates and blockers checked first"],
-		],
-	},
-	clients: {
-		label: "Clients",
-		title: "Client distribution control",
-		body: "MCPMate distributes packaged capability through the right client mode instead of copying every server into every app.",
-		icon: AppWindow,
-		status: "Backup prepared",
-		stats: [
-			["Targets", "6 known"],
-			["Writable", "4"],
-			["Mode", "Hosted"],
-		],
-		rows: [
-			["Transparent", "write selected servers to native config"],
-			["Hosted", "keep MCPMate in the local runtime path"],
-			["Unify", "start from a smaller control surface"],
-		],
-	},
-	profiles: {
-		label: "Profiles",
-		title: "Progressive skill policy",
-		body: "Profiles are the current policy bridge between skill-shaped intent and the concrete MCP capabilities a client can see.",
-		icon: SlidersHorizontal,
-		status: "Exposure scoped",
-		stats: [
-			["Tools", "42 -> 11"],
-			["Prompts", "8 -> 3"],
-			["Clients", "2 bound"],
-		],
-		rows: [
-			["Operating policy", "servers and capabilities grouped by workflow"],
-			["Client source", "active, shared, or custom profile"],
-			["Live exposure", "runtime view changes with profile edits"],
-		],
-	},
-	audit: {
-		label: "Logs",
-		title: "Operational evidence timeline",
-		body: "Logs keep profile changes, client apply actions, imports, backups, restores, and runtime checks close to the workflow.",
-		icon: FileSearch,
-		status: "Events indexed",
-		stats: [
-			["Profile events", "18"],
-			["Client applies", "7"],
-			["Restores", "1"],
-		],
-		rows: [
-			["Change source", "profile edits, imports, and client writes are separated"],
-			["Evidence trail", "who changed what, when, and which target was touched"],
-			["Recovery clue", "backup and restore actions stay next to the risky operation"],
-		],
-	},
-	secrets: {
-		label: "Secrets",
-		title: "Credential custody surface",
-		body: "Secrets keeps sensitive runtime inputs managed locally instead of spreading raw values through copied client configs.",
-		icon: KeyRound,
-		status: "Protected",
-		stats: [
-			["Secrets", "9"],
-			["Linked fields", "14"],
-			["Exports", "explicit"],
-		],
-		rows: [
-			["Local custody", "sensitive values stay closer to the runtime path"],
-			["Install flow", "server setup can reference stored secrets without pasting values everywhere"],
-			["Trade-off", "transparent export remains deliberate when native config needs it"],
-		],
-	},
-	runtime: {
-		label: "Runtime",
-		title: "Evidence before guessing",
-		body: "Runtime status, bindings, Inspector calls, logs, and backups show what changed and where to investigate next.",
-		icon: Activity,
-		status: "Verified",
-		stats: [
-			["Bindings", "visible"],
-			["Inspector", "passed"],
-			["Audit", "recorded"],
-		],
-		rows: [
-			["Readiness", "server status and cache health are visible"],
-			["Inspector calls", "direct and proxy-path behavior compared"],
-			["Maintenance", "refresh checks after heavy workflow changes"],
-		],
-	},
-	apiDocs: {
-		label: "API Docs",
-		title: "Local API reference",
-		body: "API Docs stays in Advanced because it is useful for automation and debugging, not required for everyday MCP workflow setup.",
-		icon: Bug,
-		status: "Opt-in",
-		stats: [
-			["Endpoints", "local"],
-			["Schema", "available"],
-			["Access", "developer"],
-		],
-		rows: [
-			["Automation", "scripts can use the same local operating state"],
-			["Debugging", "inspect request and response shape when the UI is not enough"],
-			["Boundary", "local API access is separate from cloud control-plane claims"],
-		],
-	},
-	account: {
-		label: "Account",
-		title: "Local session boundary",
-		body: "Account state stays visually separate from capability packaging so users can distinguish product session from MCP runtime control.",
-		icon: CircleUserRound,
-		status: "Local session",
-		stats: [
-			["Plan", "workspace"],
-			["Sync", "off"],
-			["Owner", "local"],
-		],
-		rows: [
-			["Identity", "shown as shell state, not capability policy"],
-			["Boundary", "local-first operation remains the current product claim"],
-			["Future", "team or cloud controls would need their own explicit surface"],
-		],
-	},
-	settings: {
-		label: "Settings",
-		title: "Operator preferences",
-		body: "Language, theme, default client mode, backup policy, and advanced visibility belong in the product shell, not in the marketing chrome.",
-		icon: Settings,
-		status: "Saved locally",
-		stats: [
-			["Language", "English"],
-			["Theme", "System"],
-			["Mode", "Hosted"],
-		],
-		rows: [
-			["Language", "English, Chinese, and Japanese are first-class Board settings"],
-			["Theme", "system, light, and dark are explicit operator choices"],
-			["Advanced navigation", "API Docs and debug surfaces stay opt-in"],
-		],
-	},
-	about: {
-		label: "About",
-		title: "About MCPMate",
-		body: "Product identity, version channel, update notes, license posture, and local operating boundary belong inside the app too.",
-		icon: BookText,
-		status: "Skills release",
-		stats: [
-			["Version", "Skills channel"],
-			["License", "AGPL-3.0"],
-			["Platform", "macOS · Windows · Linux"],
-		],
-		rows: [
-			["Latest focus", "skills over MCP, browser handoff, runtime evidence"],
-			["Boundary", "local-first and team-ready, not a cloud gateway claim"],
-			["Next app update", "make About useful for release notes and proof"],
-		],
-	},
-};
 
 const problemItems = [
 	{
@@ -960,7 +511,9 @@ function SectionHeader({
 			<h2 className={cx("text-balance text-4xl font-semibold leading-tight md:text-6xl", invert ? "text-white" : "text-zinc-950")}>
 				{text(title)}
 			</h2>
-			<p className={cx("mt-5 text-base leading-7 md:text-lg", invert ? "text-white/62" : "text-zinc-600")}>{text(body)}</p>
+			<p className={cx("mt-5 text-base leading-7 md:text-lg", invert ? "text-white/62" : "text-zinc-600")}>
+				{text(body)}
+			</p>
 		</div>
 	);
 }
@@ -981,7 +534,9 @@ function BrandMark({ invert = false }: { invert?: boolean }) {
 			</span>
 			<div>
 				<p className={cx("text-lg font-semibold leading-none", invert ? "text-white" : "text-zinc-950")}>MCPMate</p>
-				<p className={cx("mt-1 text-xs", invert ? "text-white/45" : "text-zinc-500")}>{text("Progressive MCP management")}</p>
+				<p className={cx("mt-1 text-xs", invert ? "text-white/45" : "text-zinc-500")}>
+					{text("Progressive MCP management")}
+				</p>
 			</div>
 		</div>
 	);
@@ -1017,796 +572,245 @@ function Actions({ invert = false }: { invert?: boolean }) {
 	);
 }
 
-function ConceptNav() {
-	const text = useConceptText();
+const DEFAULT_BOARD_DEMO_URL = "http://127.0.0.1:5174/";
+const BOARD_DEMO_TARGET_CHECK_TIMEOUT_MS = 2500;
+const DEFAULT_BOARD_DEMO_ROUTE_KEY = "overview";
 
-	return (
-		<header className="concept-nav fixed inset-x-0 top-0 z-50 border-b px-5 py-3 backdrop-blur md:px-8">
-			<div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-				<a href="/" aria-label="MCPMate home" className="flex items-center gap-3">
-					<span className="concept-nav__brand-icon flex h-10 w-10 items-center justify-center rounded-md border" aria-hidden>
-						<img src={logoImage} alt="" className="h-7 w-7 object-contain" />
-					</span>
-					<span>
-						<span className="concept-nav__brand-title block text-lg font-semibold leading-none">MCPMate</span>
-						<span className="concept-nav__brand-subtitle mt-1 block text-xs">{text("Progressive MCP management")}</span>
-					</span>
-				</a>
-				<div className="hidden items-center gap-5 lg:flex">
-					<nav className="flex items-center gap-5 text-sm font-semibold">
-						{conceptNavLinks.map((link) => (
-							<a key={link.href} href={link.href} className="concept-nav__link">
-								{text(link.label)}
-							</a>
-						))}
-					</nav>
-					<a href="/#download" className="concept-nav__cta rounded-md px-4 py-2 text-sm font-semibold">
-						{text("Download MCPMate")}
-					</a>
-				</div>
-			</div>
-		</header>
-	);
-}
-
-function BoardHeaderIconButton({
-	icon: Icon,
-	label,
-}: {
-	icon: LucideIcon;
+type BoardDemoFrameStatus = "checking" | "available" | "unavailable";
+type BoardDemoRoute = {
+	key: string;
 	label: string;
-}) {
-	return (
-		<button
-			type="button"
-			className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-			aria-label={label}
-			title={label}
-		>
-			<Icon className="h-4 w-4" aria-hidden />
-		</button>
-	);
-}
-
-function SettingChoiceGroup({
-	label,
-	options,
-	value,
-	onChange,
-}: {
-	label: string;
-	options: string[];
-	value: string;
-	onChange: (value: string) => void;
-}) {
-	const text = useConceptText();
-
-	return (
-		<div className="rounded-lg border border-slate-200 bg-white p-4">
-			<p className="text-sm font-medium text-slate-500">{text(label)}</p>
-			<div className="mt-3 grid gap-2 sm:grid-cols-3">
-				{options.map((option) => {
-					const active = option === value;
-
-					return (
-						<button
-							key={option}
-							type="button"
-							onClick={() => onChange(option)}
-							className={cx(
-								"min-h-10 rounded-md border px-3 text-sm font-medium transition",
-								active
-									? "border-slate-950 bg-slate-950 text-white"
-									: "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-950",
-							)}
-							aria-pressed={active}
-						>
-							{text(option)}
-						</button>
-					);
-				})}
-			</div>
-		</div>
-	);
-}
-
-function SettingsPreviewSurface({ className }: { className?: string }) {
-	const [language, setLanguage] = useState("English");
-	const [theme, setTheme] = useState("System");
-	const text = useConceptText();
-
-	return (
-		<div className={cx("min-w-0 space-y-4", className)}>
-			<div className="flex items-start justify-between gap-4">
-				<div>
-					<div className="flex items-center gap-2">
-						<span className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600">
-							<Settings className="h-4 w-4" aria-hidden />
-						</span>
-						<p className="text-base font-semibold text-slate-900">{text("Operator preferences")}</p>
-					</div>
-					<p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-						{text("Language and theme are app-level preferences because they change the Board experience itself.")}
-					</p>
-				</div>
-				<span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-					{text("Local setting")}
-				</span>
-			</div>
-			<div className="grid gap-3 lg:grid-cols-2">
-				<SettingChoiceGroup
-					label="Language"
-					options={["English", "中文", "日本語"]}
-					value={language}
-					onChange={setLanguage}
-				/>
-				<SettingChoiceGroup
-					label="Theme"
-					options={["System", "Light", "Dark"]}
-					value={theme}
-					onChange={setTheme}
-				/>
-			</div>
-			<div className="rounded-lg border border-slate-200 bg-white p-4">
-				<div className="grid gap-3 md:grid-cols-3">
-					{[
-						["Default client mode", "Hosted"],
-						["Backup policy", "Before apply"],
-						["Advanced nav", "Opt-in"],
-					].map(([label, value]) => (
-						<div key={label}>
-							<p className="text-sm font-medium text-slate-500">{text(label)}</p>
-							<p className="mt-1 text-lg font-semibold text-slate-950">{text(value)}</p>
-						</div>
-					))}
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function AboutPreviewSurface({ className }: { className?: string }) {
-	const text = useConceptText();
-
-	return (
-		<div className={cx("min-w-0 space-y-4", className)}>
-			<div className="flex items-start justify-between gap-4">
-				<div>
-					<div className="flex items-center gap-2">
-						<span className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600">
-							<BookText className="h-4 w-4" aria-hidden />
-						</span>
-						<p className="text-base font-semibold text-slate-900">{text("About MCPMate")}</p>
-					</div>
-					<p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-						{text("The About surface carries release context, license posture, platform support, and the current operating boundary.")}
-					</p>
-				</div>
-				<span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-					{text("Skills channel")}
-				</span>
-			</div>
-			<div className="grid gap-3 md:grid-cols-3">
-				{[
-					["Version", "Skills release"],
-					["License", "AGPL-3.0"],
-					["Platforms", "macOS, Windows, Linux"],
-				].map(([label, value]) => (
-					<div key={label} className="rounded-lg border border-slate-200 bg-white p-4">
-						<p className="text-sm font-medium text-slate-500">{text(label)}</p>
-						<p className="mt-2 text-xl font-semibold text-slate-950">{text(value)}</p>
-					</div>
-				))}
-			</div>
-			<div className="rounded-lg border border-slate-200 bg-white p-4">
-				<p className="text-sm font-semibold text-slate-950">{text("Latest focus")}</p>
-				<div className="mt-3 space-y-3">
-					{[
-						"Package capability as skill-shaped workflows.",
-						"Preserve browser and Market import evidence.",
-						"Keep enterprise gateway claims out of the current boundary.",
-					].map((item) => (
-						<div key={item} className="flex items-start gap-3">
-							<CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-							<p className="text-sm leading-6 text-slate-500">{text(item)}</p>
-						</div>
-					))}
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function DashboardPreviewCard({
-	icon: Icon,
-	title,
-	rows,
-}: {
-	icon: LucideIcon;
-	title: string;
-	rows: Array<[string, string]>;
-}) {
-	const text = useConceptText();
-
-	return (
-		<div className="min-h-[9.75rem] rounded-lg border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-sky-300">
-			<div className="flex items-center justify-between">
-				<p className="text-sm font-semibold text-slate-900">{text(title)}</p>
-				<Icon className="h-4 w-4 text-slate-500" aria-hidden />
-			</div>
-			<div className="mt-6 space-y-2.5">
-				{rows.map(([label, value]) => (
-					<div key={label} className="flex items-center justify-between gap-3">
-						<p className="text-sm text-slate-500">{text(label)}</p>
-						{value === "Ready" ? (
-							<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">
-								<span className="h-2 w-2 rounded-full bg-white/70" />
-								{text(value)}
-							</span>
-						) : (
-							<p className="text-sm font-medium text-slate-950">{text(value)}</p>
-						)}
-					</div>
-				))}
-			</div>
-		</div>
-	);
-}
-
-type PreviewChartVariant = "metrics" | "tokens";
-
-type PreviewChartPoint = {
-	time: string;
-	cpu?: number;
-	memory?: number;
-	beforeFiltering?: number;
-	afterFiltering?: number;
+	path: string;
 };
 
-type PreviewChartSeries = {
-	key: keyof Omit<PreviewChartPoint, "time">;
-	name: string;
-	color: string;
-	dash?: string;
-};
-
-type PreviewChartConfig = {
-	points: PreviewChartPoint[];
-	series: PreviewChartSeries[];
-	maxValue: number;
-	tickValues: number[];
-	ariaLabel: string;
-};
-
-const PREVIEW_CHART_VIEWBOX = {
-	width: 520,
-	height: 168,
-	left: 46,
-	right: 18,
-	top: 6,
-	bottom: 24,
-} as const;
-
-const previewMetricsData: PreviewChartPoint[] = [
-	{ time: "11:22 AM", cpu: 0.03, memory: 0.28 },
-	{ time: "02:55 PM", cpu: 0.03, memory: 0.26 },
-	{ time: "01:17 AM", cpu: 0.03, memory: 0.33 },
-	{ time: "05:04 PM", cpu: 0.03, memory: 0.3 },
-	{ time: "09:12 PM", cpu: 0.03, memory: 0.29 },
-	{ time: "01:15 PM", cpu: 0.03, memory: 0.31 },
+const BOARD_DEMO_ROUTES: BoardDemoRoute[] = [
+	{ key: "onboarding", label: "onboarding", path: "/onboarding" },
+	{ key: "overview", label: "overview", path: "" },
+	{ key: "profiles", label: "profiles", path: "/profiles" },
+	{ key: "clients", label: "clients", path: "/clients" },
+	{ key: "servers", label: "servers", path: "/servers" },
+	{ key: "market", label: "market", path: "/market" },
+	{ key: "runtime", label: "runtime", path: "/runtime" },
+	{ key: "api-docs", label: "api docs", path: "/api-docs" },
+	{ key: "security", label: "security", path: "/settings?tab=security" },
 ];
 
-const previewTokenData: PreviewChartPoint[] = [
-	{ time: "11:22 AM", beforeFiltering: 0, afterFiltering: 0 },
-	{ time: "07:58 AM", beforeFiltering: 0, afterFiltering: 4500 },
-	{ time: "08:05 AM", beforeFiltering: 0, afterFiltering: 4500 },
-	{ time: "02:23 PM", beforeFiltering: 0, afterFiltering: 0 },
-	{ time: "05:01 PM", beforeFiltering: 0, afterFiltering: 6100 },
-	{ time: "09:14 PM", beforeFiltering: 0, afterFiltering: 0 },
-	{ time: "01:15 PM", beforeFiltering: 0, afterFiltering: 0 },
-];
-
-const previewMetricsSeries: PreviewChartSeries[] = [
-	{ key: "cpu", name: "CPU (%)", color: "#3b82f6" },
-	{ key: "memory", name: "Memory (%)", color: "#10b981", dash: "6 4" },
-];
-
-const previewTokenSeries: PreviewChartSeries[] = [
-	{ key: "beforeFiltering", name: "Before Filtering", color: "#3b82f6", dash: "6 4" },
-	{ key: "afterFiltering", name: "After Filtering", color: "#22c55e" },
-];
-
-const PREVIEW_CHART_PLOT_WIDTH = PREVIEW_CHART_VIEWBOX.width - PREVIEW_CHART_VIEWBOX.left - PREVIEW_CHART_VIEWBOX.right;
-const PREVIEW_CHART_PLOT_HEIGHT = PREVIEW_CHART_VIEWBOX.height - PREVIEW_CHART_VIEWBOX.top - PREVIEW_CHART_VIEWBOX.bottom;
-
-const previewChartConfigs: Record<PreviewChartVariant, PreviewChartConfig> = {
-	metrics: {
-		points: previewMetricsData,
-		series: previewMetricsSeries,
-		maxValue: 1.4,
-		tickValues: [0, 0.35, 0.7, 1.36],
-		ariaLabel: "Metrics trend chart preview",
-	},
-	tokens: {
-		points: previewTokenData,
-		series: previewTokenSeries,
-		maxValue: 8000,
-		tickValues: [0, 2000, 4000, 6000, 8000],
-		ariaLabel: "Token savings trend chart preview",
-	},
-};
-
-function chartX(index: number, points: PreviewChartPoint[]) {
-	if (points.length <= 1) {
-		return PREVIEW_CHART_VIEWBOX.left;
+function resolveBoardDemoUrl(): string {
+	const configuredUrl = import.meta.env.VITE_MCPMATE_BOARD_DEMO_URL;
+	if (typeof configuredUrl === "string" && configuredUrl.trim().length > 0) {
+		return configuredUrl.trim();
 	}
-	return PREVIEW_CHART_VIEWBOX.left + (PREVIEW_CHART_PLOT_WIDTH * index) / (points.length - 1);
+	return DEFAULT_BOARD_DEMO_URL;
 }
 
-function chartY(value: number, maxValue: number) {
-	return PREVIEW_CHART_VIEWBOX.top + PREVIEW_CHART_PLOT_HEIGHT - (PREVIEW_CHART_PLOT_HEIGHT * value) / maxValue;
+function buildBoardDemoRouteUrl(route: BoardDemoRoute): string {
+	const base = resolveBoardDemoUrl().replace(/\/+$/, "");
+	return route.path ? `${base}${route.path}` : `${base}/`;
 }
 
-function formatPreviewChartValue(variant: PreviewChartVariant, value: number) {
-	if (variant === "metrics") {
-		return `${value.toFixed(2)}%`;
-	}
-	return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value.toString();
+function resolveBoardDemoRoute(routeKey: string): BoardDemoRoute {
+	return (
+		BOARD_DEMO_ROUTES.find((route) => route.key === routeKey) ??
+		BOARD_DEMO_ROUTES.find((route) => route.key === DEFAULT_BOARD_DEMO_ROUTE_KEY) ??
+		BOARD_DEMO_ROUTES[0]
+	);
 }
 
-function buildPreviewChartPath(
-	points: PreviewChartPoint[],
-	seriesKey: PreviewChartSeries["key"],
-	maxValue: number,
-) {
-	return points
-		.map((point, index) => {
-			const value = point[seriesKey] ?? 0;
-			const command = index === 0 ? "M" : "L";
-			return `${command}${chartX(index, points).toFixed(1)} ${chartY(value, maxValue).toFixed(1)}`;
+function useBodyScrollLock(locked: boolean): void {
+	useEffect(() => {
+		if (!locked) {
+			return;
+		}
+		const previousOverflow = document.body.style.overflow;
+		document.body.style.overflow = "hidden";
+		return () => {
+			document.body.style.overflow = previousOverflow;
+		};
+	}, [locked]);
+}
+
+function BoardDemoEmbed() {
+	const [frameKey, setFrameKey] = useState(0);
+	const [loaded, setLoaded] = useState(false);
+	const [frameStatus, setFrameStatus] = useState<BoardDemoFrameStatus>("checking");
+	const [selectedRouteKey, setSelectedRouteKey] = useState(DEFAULT_BOARD_DEMO_ROUTE_KEY);
+	const [maximized, setMaximized] = useState(false);
+	const text = useConceptText();
+	const selectedRoute = resolveBoardDemoRoute(selectedRouteKey);
+	const demoUrl = buildBoardDemoRouteUrl(selectedRoute);
+
+	useBodyScrollLock(maximized);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		const timeoutId = window.setTimeout(() => {
+			controller.abort();
+		}, BOARD_DEMO_TARGET_CHECK_TIMEOUT_MS);
+		let cancelled = false;
+
+		setFrameStatus("checking");
+		setLoaded(false);
+
+		void fetch(demoUrl, {
+			cache: "no-store",
+			mode: "no-cors",
+			signal: controller.signal,
 		})
-		.join(" ");
-}
+			.then(() => {
+				if (!cancelled) {
+					setFrameStatus("available");
+				}
+			})
+			.catch(() => {
+				if (!cancelled) {
+					setFrameStatus("unavailable");
+				}
+			})
+			.finally(() => {
+				window.clearTimeout(timeoutId);
+			});
 
-function PreviewChartLegend({ series }: { series: PreviewChartSeries[] }) {
-	return (
-		<div className="flex h-8 w-full shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 overflow-hidden px-2 text-xs font-medium leading-tight">
-			{series.map((entry) => (
-				<div key={entry.key} className="flex items-center gap-1.5" style={{ color: entry.color }}>
-					<span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
-					<span>{entry.name}</span>
-				</div>
-			))}
-		</div>
-	);
-}
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timeoutId);
+			controller.abort();
+		};
+	}, [demoUrl, frameKey]);
 
-function PreviewChartTooltip({
-	activePoint,
-	series,
-	variant,
-}: {
-	activePoint: PreviewChartPoint;
-	series: PreviewChartSeries[];
-	variant: PreviewChartVariant;
-}) {
-	return (
-		<div className="absolute right-3 top-3 z-10 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 shadow-lg">
-			<div className="mb-1 text-[11px] text-slate-400">{activePoint.time}</div>
-			<div className="space-y-1">
-				{series.map((entry) => {
-					const value = activePoint[entry.key] ?? 0;
-					return (
-						<div key={entry.key} className="flex items-center justify-between gap-4">
-							<span className="flex items-center gap-2 text-[11px]" style={{ color: entry.color }}>
-								<span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
-								{entry.name}
-							</span>
-							<span className="min-w-[3rem] text-right text-[11px] font-semibold text-slate-50">
-								{formatPreviewChartValue(variant, value)}
-							</span>
-						</div>
-					);
-				})}
-			</div>
-		</div>
-	);
-}
-
-function PreviewLineChart({ variant }: { variant: PreviewChartVariant }) {
-	const [activeIndex, setActiveIndex] = useState<number | null>(null);
-	const { ariaLabel, maxValue, points, series, tickValues } = previewChartConfigs[variant];
-	const activePoint = activeIndex === null ? null : points[activeIndex];
-	const visibleTimeLabels = points.filter((_, index) => index === 0 || index === points.length - 1 || index % 2 === 1);
-
-	function updateActivePoint(event: PointerEvent<HTMLDivElement>) {
-		const bounds = event.currentTarget.getBoundingClientRect();
-		const plotLeftRatio = PREVIEW_CHART_VIEWBOX.left / PREVIEW_CHART_VIEWBOX.width;
-		const plotWidthRatio = PREVIEW_CHART_PLOT_WIDTH / PREVIEW_CHART_VIEWBOX.width;
-		const xRatio = Math.min(Math.max((event.clientX - bounds.left) / bounds.width, plotLeftRatio), plotLeftRatio + plotWidthRatio);
-		const index = Math.round(((xRatio - plotLeftRatio) / plotWidthRatio) * (points.length - 1));
-		setActiveIndex(Math.min(Math.max(index, 0), points.length - 1));
+	function reloadFrame(): void {
+		setLoaded(false);
+		setFrameStatus("checking");
+		setFrameKey((current) => current + 1);
 	}
 
-	return (
-		<div
-			className="relative flex h-[190px] min-h-[190px] max-h-[190px] w-full shrink-0 flex-col overflow-hidden"
-			onPointerMove={updateActivePoint}
-			onPointerLeave={() => setActiveIndex(null)}
-			onFocus={() => setActiveIndex(points.length - 1)}
-			onBlur={() => setActiveIndex(null)}
-			tabIndex={0}
-			role="img"
-			aria-label={ariaLabel}
-		>
-			{activePoint ? <PreviewChartTooltip activePoint={activePoint} series={series} variant={variant} /> : null}
-			<svg className="min-h-0 w-full flex-1 overflow-visible" viewBox={`0 0 ${PREVIEW_CHART_VIEWBOX.width} ${PREVIEW_CHART_VIEWBOX.height}`} aria-hidden>
-				{tickValues.map((tick) => {
-					const y = chartY(tick, maxValue);
-					return (
-						<g key={tick}>
-							<line
-								x1={PREVIEW_CHART_VIEWBOX.left}
-								x2={PREVIEW_CHART_VIEWBOX.width - PREVIEW_CHART_VIEWBOX.right}
-								y1={y}
-								y2={y}
-								stroke="currentColor"
-								strokeDasharray="3 3"
-								className="text-slate-200"
-							/>
-							<text x="8" y={y + 4} className="fill-slate-500 text-[11px]">
-								{formatPreviewChartValue(variant, tick)}
-							</text>
-						</g>
-					);
-				})}
-				<line
-					x1={PREVIEW_CHART_VIEWBOX.left}
-					x2={PREVIEW_CHART_VIEWBOX.left}
-					y1={PREVIEW_CHART_VIEWBOX.top}
-					y2={PREVIEW_CHART_VIEWBOX.top + PREVIEW_CHART_PLOT_HEIGHT}
-					stroke="currentColor"
-					className="text-slate-300"
-				/>
-				{visibleTimeLabels.map((point) => {
-					const index = points.indexOf(point);
-					return (
-						<text key={`${variant}-${point.time}-${index}`} x={chartX(index, points) - 18} y={PREVIEW_CHART_VIEWBOX.height - 6} className="fill-slate-500 text-[11px]">
-							{point.time}
-						</text>
-					);
-				})}
-				{series.map((entry) => (
-					<path
-						key={entry.key}
-						d={buildPreviewChartPath(points, entry.key, maxValue)}
-						fill="none"
-						stroke={entry.color}
-						strokeWidth="2"
-						strokeDasharray={entry.dash}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				))}
-				{activeIndex !== null ? (
-					<>
-						<line
-							x1={chartX(activeIndex, points)}
-							x2={chartX(activeIndex, points)}
-							y1={PREVIEW_CHART_VIEWBOX.top}
-							y2={PREVIEW_CHART_VIEWBOX.top + PREVIEW_CHART_PLOT_HEIGHT}
-							stroke="currentColor"
-							strokeDasharray="4 4"
-							className="text-slate-400"
-						/>
-						{series.map((entry) => {
-							const value = points[activeIndex][entry.key] ?? 0;
-							return (
-								<circle
-									key={`${entry.key}-active`}
-									cx={chartX(activeIndex, points)}
-									cy={chartY(value, maxValue)}
-									r="4"
-									fill={entry.color}
-									stroke="white"
-									strokeWidth="2"
-								/>
-							);
-						})}
-					</>
-				) : null}
-			</svg>
-			<PreviewChartLegend series={series} />
-		</div>
-	);
-}
-
-function DashboardPreviewSurface({ className }: { className?: string }) {
-	const text = useConceptText();
+	const maximizeLabel = text(maximized ? "Restore demo window" : "Maximize demo window");
 
 	return (
-		<div className={cx("min-w-0 space-y-5", className)}>
-			<div className="flex w-full items-center justify-between gap-4 px-1 pb-1 pt-0">
-				<div className="min-w-0 space-y-0.5">
-					<div className="flex items-center gap-2">
-						<span className="text-base font-semibold text-slate-900">{text("Local Core")}</span>
-						<span className="text-sm text-slate-500">{text("Desktop")}</span>
-					</div>
-					<p className="flex flex-wrap items-baseline gap-x-2 gap-y-0 leading-5">
-						<span className="text-base text-slate-700">{text("Running")}</span>
-						<span className="text-sm text-slate-500">{text("MCPMate Desktop is managing the local core and will stop it when the app quits.")}</span>
-					</p>
-				</div>
-				<div className="flex shrink-0 items-center gap-3">
-					<button type="button" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100" aria-label={text("Refresh core status")}>
-						<RefreshCw className="h-4 w-4" aria-hidden />
-					</button>
-					<button type="button" className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white" aria-label={text("Stop local core")}>
-						<Square className="h-5 w-5" aria-hidden />
-					</button>
-				</div>
-			</div>
-
-			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-				<DashboardPreviewCard
-					icon={Activity}
-					title="System Status"
-					rows={[
-						["Status", "Ready"],
-						["Uptime", "8s"],
-						["Version", "v0.1.0"],
-					]}
+		<>
+			{maximized ? (
+				<div
+					className="fixed inset-0 z-[70] bg-slate-950/55 backdrop-blur-sm"
+					aria-hidden="true"
 				/>
-				<DashboardPreviewCard
-					icon={SlidersHorizontal}
-					title="Profiles"
-					rows={[
-						["Total Profiles", "1"],
-						["Active Profiles", "1"],
-					]}
-				/>
-				<DashboardPreviewCard
-					icon={AppWindow}
-					title="Clients"
-					rows={[
-						["Total Clients", "0"],
-						["Approved", "0"],
-					]}
-				/>
-				<DashboardPreviewCard
-					icon={Server}
-					title="Servers"
-					rows={[
-						["Total Servers", "4"],
-						["Connected", "0"],
-					]}
-				/>
-			</div>
-
-			<div className="grid items-stretch gap-4 lg:grid-cols-2">
-				<div className="flex h-full min-h-[19rem] flex-col rounded-lg border border-slate-200 bg-white">
-					<div className="flex flex-col gap-1.5 p-4">
-						<div className="flex items-center gap-2">
-							<Activity className="h-5 w-5 text-sky-500" aria-hidden />
-							<p className="text-base font-semibold text-slate-950">{text("Metrics")}</p>
+			) : null}
+			<div
+				className={cx(
+					"overflow-hidden border border-slate-200 bg-slate-950 shadow-[0_34px_110px_rgba(15,23,42,0.16)]",
+					maximized
+						? "fixed inset-3 z-[80] rounded-xl shadow-[0_40px_160px_rgba(0,0,0,0.48)] md:inset-6"
+						: "rounded-xl",
+				)}
+			>
+				<div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-950 px-4 py-3 text-slate-100">
+					<div className="flex min-w-0 items-center gap-3">
+						<div className="flex shrink-0 items-center gap-2">
+							<span className="h-3 w-3 rounded-full bg-[#ff5f57]" aria-hidden />
+							<span className="h-3 w-3 rounded-full bg-[#febc2e]" aria-hidden />
+							<button
+								type="button"
+								onClick={() => setMaximized((current) => !current)}
+								className="flex h-3 w-3 items-center justify-center rounded-full bg-[#28c840] text-emerald-950"
+								aria-label={maximizeLabel}
+							>
+								{maximized ? (
+									<Minimize2 className="h-2 w-2 opacity-0 transition-opacity hover:opacity-80" aria-hidden />
+								) : (
+									<Maximize2 className="h-2 w-2 opacity-0 transition-opacity hover:opacity-80" aria-hidden />
+								)}
+							</button>
 						</div>
-						<p className="text-xs leading-5 text-slate-500">{text("MCPMate process CPU and memory utilization sampled every 30 seconds")}</p>
-					</div>
-					<div className="min-h-0 flex-1 px-4 pb-3 pt-0">
-						<PreviewLineChart variant="metrics" />
-					</div>
-				</div>
-				<div className="flex h-full min-h-[19rem] flex-col rounded-lg border border-slate-200 bg-white">
-					<div className="flex flex-col gap-1.5 p-4">
-						<div className="flex items-center justify-between gap-3">
-							<div className="flex min-w-0 items-center gap-2">
-								<Sparkles className="h-5 w-5 shrink-0 text-amber-500" aria-hidden />
-								<p className="truncate text-base font-semibold text-slate-950">{text("Token Savings")}</p>
-							</div>
-							<p className="shrink-0 text-xs font-semibold text-emerald-600">↗ 0 saved</p>
+						<div className="min-w-0">
+							<p className="truncate text-sm font-semibold">MCPMate</p>
 						</div>
-						<p className="text-xs leading-5 text-slate-500">{text("Estimated context savings from profile filtering")}</p>
 					</div>
-					<div className="min-h-0 flex-1 px-4 pb-3 pt-0">
-						<PreviewLineChart variant="tokens" />
-					</div>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function ModulePreviewSurface({
-	moduleKey,
-	className,
-}: {
-	moduleKey: DesktopModuleKey;
-	className?: string;
-}) {
-	const text = useConceptText();
-	const module = desktopModules[moduleKey];
-	const ModuleIcon = module.icon;
-
-	if (moduleKey === "dashboard") {
-		return <DashboardPreviewSurface className={className} />;
-	}
-
-	if (moduleKey === "settings") {
-		return <SettingsPreviewSurface className={className} />;
-	}
-
-	if (moduleKey === "about") {
-		return <AboutPreviewSurface className={className} />;
-	}
-
-	return (
-		<div className={cx("min-w-0 space-y-4", className)}>
-			<div className="flex items-start justify-between gap-4">
-				<div className="min-w-0">
-					<div className="flex items-center gap-2">
-						<span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600">
-							<ModuleIcon className="h-4 w-4" aria-hidden />
-						</span>
-						<p className="truncate text-base font-semibold text-slate-900">{text(module.title)}</p>
-					</div>
-					<p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{text(module.body)}</p>
-				</div>
-				<span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-					{text(module.status)}
-				</span>
-			</div>
-
-			<div className="grid gap-3 md:grid-cols-3">
-				{module.stats.map(([label, value]) => (
-					<div key={label} className="rounded-lg border border-slate-200 bg-white p-4">
-						<p className="text-sm font-medium text-slate-500">{text(label)}</p>
-						<p className="mt-2 text-2xl font-bold text-slate-950">{text(value)}</p>
-					</div>
-				))}
-			</div>
-
-			<div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-				{module.rows.map(([label, value]) => (
-					<div key={label} className="grid gap-2 border-b border-slate-200 px-4 py-3 last:border-b-0 md:grid-cols-[10rem_1fr]">
-						<p className="text-sm font-medium text-slate-900">{text(label)}</p>
-						<p className="text-sm leading-6 text-slate-500">{text(value)}</p>
-					</div>
-				))}
-			</div>
-		</div>
-	);
-}
-
-function DesktopSidebarModuleButton({
-	moduleKey,
-	activeModule,
-	onModuleChange,
-}: DesktopSidebarModuleButtonProps) {
-	const text = useConceptText();
-	const item = desktopModules[moduleKey];
-	const ItemIcon = item.icon;
-	const isActive = moduleKey === activeModule;
-	const label = text(item.label);
-
-	return (
-		<button
-			type="button"
-			onClick={() => onModuleChange(moduleKey)}
-			className={cx(
-				"flex w-full items-center justify-center gap-3 rounded-md px-0 py-2 text-left text-sm font-medium transition xl:justify-start xl:px-3",
-				isActive ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950",
-			)}
-			aria-pressed={isActive}
-			aria-label={label}
-			title={label}
-		>
-			<ItemIcon className="h-5 w-5 shrink-0" aria-hidden />
-			<span className="hidden xl:inline">{label}</span>
-		</button>
-	);
-}
-
-function DesktopSidebarModuleGroup({
-	label,
-	moduleKeys,
-	activeModule,
-	onModuleChange,
-}: DesktopSidebarModuleGroupProps) {
-	const text = useConceptText();
-
-	return (
-		<div>
-			{label ? <p className="mb-1 hidden px-3 text-xs font-semibold text-slate-400 xl:block">{text(label)}</p> : null}
-			{moduleKeys.map((moduleKey) => (
-				<DesktopSidebarModuleButton
-					key={moduleKey}
-					moduleKey={moduleKey}
-					activeModule={activeModule}
-					onModuleChange={onModuleChange}
-				/>
-			))}
-		</div>
-	);
-}
-
-function DesktopSimulation({
-	className,
-	initialModule = "dashboard",
-}: {
-	className?: string;
-	initialModule?: DesktopModuleKey;
-}) {
-	const [activeModule, setActiveModule] = useState<DesktopModuleKey>(initialModule);
-	const text = useConceptText();
-	const module = desktopModules[activeModule];
-
-	return (
-		<div
-			className={cx(
-				"flex h-[42.5rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_34px_110px_rgba(15,23,42,0.16)]",
-				className,
-			)}
-		>
-			<div className="flex h-7 shrink-0 items-center gap-2 bg-slate-100 px-3">
-				<span className="h-3 w-3 rounded-full bg-red-500" />
-				<span className="h-3 w-3 rounded-full bg-amber-400" />
-				<span className="h-3 w-3 rounded-full bg-emerald-500" />
-			</div>
-			<div className="grid min-h-0 flex-1 bg-slate-50 grid-cols-[4rem_1fr] xl:grid-cols-[16rem_1fr]">
-				<aside className="flex min-h-0 flex-col border-r border-slate-200 bg-white">
-					<div className="flex h-16 shrink-0 items-center justify-center gap-2 px-2 xl:justify-start xl:px-4">
-						<img src={logoImage} alt="MCPMate" className="h-7 w-7 object-contain dark:brightness-0 dark:invert" />
-						<div className="hidden min-w-0 flex-1 xl:block">
-							<p className="truncate text-xl font-bold text-slate-950">
-								MCPMate <sup className="text-[9px] font-medium text-slate-400">Beta</sup>
-							</p>
-						</div>
-						<button type="button" className="hidden h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 xl:flex" aria-label={text("Collapse sidebar")}>
-							<Menu className="h-5 w-5" aria-hidden />
+					<div className="flex min-w-0 flex-1 items-center justify-end">
+						<button
+							type="button"
+							onClick={reloadFrame}
+							className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white"
+							aria-label={text("Reload demo frame")}
+						>
+							<RefreshCw className="h-4 w-4" aria-hidden />
 						</button>
 					</div>
-					<div className="flex-1 space-y-5 px-2 py-4">
-						<DesktopSidebarModuleGroup
-							label="MAIN"
-							moduleKeys={desktopMainModuleOrder}
-							activeModule={activeModule}
-							onModuleChange={setActiveModule}
-						/>
-						<DesktopSidebarModuleGroup
-							label="Advanced"
-							moduleKeys={desktopAdvancedModuleOrder}
-							activeModule={activeModule}
-							onModuleChange={setActiveModule}
-						/>
-					</div>
-					<div className="space-y-1 border-t border-slate-200 p-2">
-						<DesktopSidebarModuleGroup
-							moduleKeys={desktopFooterModuleOrder}
-							activeModule={activeModule}
-							onModuleChange={setActiveModule}
-						/>
-					</div>
-				</aside>
-
-				<div className="flex min-h-0 min-w-0 flex-col">
-					<header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4">
-						<div className="min-w-0">
-							<p className="truncate text-xl font-semibold text-slate-950">{text(module.label)}</p>
+				</div>
+				<div
+					className={cx(
+						"relative bg-slate-100",
+						maximized ? "h-[calc(100%-6.75rem)]" : "h-[34rem] md:h-[42.5rem]",
+					)}
+				>
+					{frameStatus === "checking" ? (
+						<div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100 text-sm font-medium text-slate-500">
+							{text("Checking board demo target...")}
 						</div>
-						<div className="flex items-center gap-2">
-							<BoardHeaderIconButton icon={MessageSquare} label="Open GitHub Discussions" />
-							<BoardHeaderIconButton icon={BookOpen} label="Open documentation" />
-							<BoardHeaderIconButton icon={Moon} label="Toggle theme" />
-							<BoardHeaderIconButton icon={Bell} label="Notifications" />
+					) : null}
+					{frameStatus === "unavailable" ? (
+						<div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100 p-6 text-center">
+							<div className="max-w-xl">
+								<p className="text-base font-semibold text-slate-800">
+									{text("Board demo target is not reachable.")}
+								</p>
+								<p className="mt-2 text-sm leading-6 text-slate-500">
+									{text("Start the board demo server, then reload this frame.")}
+								</p>
+								<code className="mt-4 block rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+									cd board && VITE_MCPMATE_BOARD_DEMO_MODE=1 bun run dev -- --host 127.0.0.1 --port 5174
+								</code>
+							</div>
 						</div>
-					</header>
-
-					<div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-						<ModulePreviewSurface moduleKey={activeModule} />
-					</div>
+					) : null}
+					{frameStatus === "available" ? (
+						<>
+							{!loaded ? (
+								<div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100 text-sm font-medium text-slate-500">
+									{text("Loading board demo...")}
+								</div>
+							) : null}
+							<iframe
+								key={frameKey}
+								src={demoUrl}
+								title="MCPMate board demo"
+								className="h-full w-full bg-white"
+								loading="eager"
+								sandbox="allow-forms allow-same-origin allow-scripts"
+								onLoad={() => setLoaded(true)}
+							/>
+						</>
+					) : null}
+				</div>
+				<div className="border-t border-slate-200 bg-white px-4 py-3">
+					<nav
+						className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+						aria-label="MCPMate demo sections"
+					>
+						<div className="mx-auto flex w-max items-center justify-center whitespace-nowrap text-xs font-semibold text-slate-400">
+							{BOARD_DEMO_ROUTES.map((route, index) => (
+								<div key={route.key} className="flex items-center">
+									{index > 0 ? (
+										<span className="px-2 text-slate-300" aria-hidden>
+											|
+										</span>
+									) : null}
+									<button
+										type="button"
+										onClick={() => setSelectedRouteKey(route.key)}
+										className={cx(
+											"rounded-sm py-1 transition hover:text-slate-900",
+											route.key === selectedRoute.key
+												? "text-slate-950"
+												: "text-slate-500",
+										)}
+									>
+										{text(route.label)}
+									</button>
+								</div>
+							))}
+						</div>
+					</nav>
 				</div>
 			</div>
-		</div>
+		</>
 	);
 }
 
@@ -1816,7 +820,7 @@ function HeroSection() {
 	return (
 		<section className="overflow-hidden bg-white pt-24 text-zinc-950">
 			<div className="relative mx-auto max-w-7xl px-5 pb-20 pt-8 md:px-8">
-				<DesktopSimulation />
+				<BoardDemoEmbed />
 				<div className="mx-auto mt-14 max-w-4xl text-center">
 					<h1 className="text-balance text-5xl font-semibold leading-[1.02] md:text-6xl xl:text-[4.6rem]">
 						{text("MCP gets messy before it looks like infrastructure.")}
@@ -1983,6 +987,40 @@ function FinalCtaSection() {
 				</div>
 			</Section>
 		</section>
+	);
+}
+
+function ConceptNav() {
+	const text = useConceptText();
+
+	return (
+		<header className="concept-nav fixed inset-x-0 top-0 z-50 border-b px-5 py-3 backdrop-blur md:px-8">
+			<div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+				<a href="/" aria-label="MCPMate home" className="flex items-center gap-3">
+					<span className="concept-nav__brand-icon flex h-10 w-10 items-center justify-center rounded-md border" aria-hidden>
+						<img src={logoImage} alt="" className="h-7 w-7 object-contain" />
+					</span>
+					<span>
+						<span className="concept-nav__brand-title block text-lg font-semibold leading-none">MCPMate</span>
+						<span className="concept-nav__brand-subtitle mt-1 block text-xs">
+							{text("Progressive MCP management")}
+						</span>
+					</span>
+				</a>
+				<div className="hidden items-center gap-5 lg:flex">
+					<nav className="flex items-center gap-5 text-sm font-semibold">
+						{conceptNavLinks.map((link) => (
+							<a key={link.href} href={link.href} className="concept-nav__link">
+								{text(link.label)}
+							</a>
+						))}
+					</nav>
+					<a href="/#download" className="concept-nav__cta rounded-md px-4 py-2 text-sm font-semibold">
+						{text("Download MCPMate")}
+					</a>
+				</div>
+			</div>
+		</header>
 	);
 }
 
