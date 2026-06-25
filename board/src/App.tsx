@@ -57,6 +57,7 @@ import {
 	recordDesktopDiagnosticEvent,
 } from "./lib/desktop-diagnostics";
 import { shouldBlockDesktopDropNavigation } from "./lib/desktop-drop-guard";
+import { isBoardDemoMode } from "./lib/demo-mode";
 import { isTauriEnvironmentSync } from "./lib/platform";
 
 const ClientDetailPage = lazy(() =>
@@ -92,88 +93,93 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+	const demoMode = isBoardDemoMode();
+	const router = (
+		<BrowserRouter
+			future={{
+				v7_startTransition: true,
+				v7_relativeSplatPath: true,
+			}}
+		>
+			<DesktopFullBoardPathBridge>
+				<BackspaceNavigationGuard />
+				<DesktopDropNavigationGuard />
+				<Routes>
+					<Route path="oauth/callback" element={<OAuthCallbackPage />} />
+					<Route path="onboarding" element={<OnboardingPage />} />
+					<Route path="operator" element={<TrayOperatorPanelPage />} />
+					<Route path="/" element={<Layout />}>
+						<Route index element={<DashboardPage />} />
+						{/* New canonical routes */}
+						<Route path="profiles" element={<ProfilePage />} />
+						<Route
+							path="profiles/presets/:presetId"
+							element={<ProfilePresetPage />}
+						/>
+						<Route path="profiles/:profileId" element={<ProfileDetailPage />} />
+						{/* Back-compat: redirect old routes */}
+						<Route
+							path="config"
+							element={<Navigate to="/profiles" replace />}
+						/>
+						<Route
+							path="config/presets/:presetId"
+							element={<LegacyPresetRedirect />}
+						/>
+						<Route
+							path="config/suits/:suitId"
+							element={<LegacySuitRedirect />}
+						/>
+						<Route
+							path="config/profiles/:suitId"
+							element={<LegacySuitRedirect />}
+						/>
+						<Route path="market" element={<CatalogProvider><MarketPage /></CatalogProvider>} />
+						<Route path="market/:registryKey" element={<CatalogProvider><MarketDetailPage /></CatalogProvider>} />
+						<Route path="servers" element={<ServerListPage />} />
+						<Route path="servers/:serverId" element={<ServerDetailPage />} />
+						<Route
+							path="servers/:serverId/instances/:instanceId"
+							element={<InstanceDetailPage />}
+						/>
+						{/* Tools route removed */}
+						<Route path="clients" element={<ClientsPage />} />
+						<Route
+							path="clients/:identifier/direct/:serverId"
+							element={<ClientDirectCapabilitiesPage />}
+						/>
+						<Route
+							path="clients/:identifier"
+							element={
+								<Suspense fallback={null}>
+									<ClientDetailPage />
+								</Suspense>
+							}
+						/>
+						<Route path="runtime" element={<RuntimePage />} />
+						<Route path="secrets" element={<SecretsPage />} />
+						<Route path="audit" element={<AuditPage />} />
+						<Route path="api-docs" element={<ApiDocsPage />} />
+						<Route path="account" element={<Navigate to="/" replace />} />
+						<Route path="settings" element={<SettingsPage />} />
+
+						<Route path="404" element={<NotFoundPage />} />
+						<Route path="*" element={<Navigate to="/404" replace />} />
+					</Route>
+				</Routes>
+			</DesktopFullBoardPathBridge>
+		</BrowserRouter>
+	);
+
 	return (
 		<QueryClientProvider client={queryClient}>
 			<LanguageSynchronizer />
 			<ThemeSynchronizer />
-			<BackendReadinessGate>
-				<MasterPasswordGate>
-					<BrowserRouter
-						future={{
-							v7_startTransition: true,
-							v7_relativeSplatPath: true,
-						}}
-					>
-						<DesktopFullBoardPathBridge>
-							<BackspaceNavigationGuard />
-							<DesktopDropNavigationGuard />
-							<Routes>
-								<Route path="oauth/callback" element={<OAuthCallbackPage />} />
-								<Route path="onboarding" element={<OnboardingPage />} />
-								<Route path="operator" element={<TrayOperatorPanelPage />} />
-								<Route path="/" element={<Layout />}>
-									<Route index element={<DashboardPage />} />
-									{/* New canonical routes */}
-									<Route path="profiles" element={<ProfilePage />} />
-									<Route
-										path="profiles/presets/:presetId"
-										element={<ProfilePresetPage />}
-									/>
-									<Route path="profiles/:profileId" element={<ProfileDetailPage />} />
-									{/* Back-compat: redirect old routes */}
-									<Route
-										path="config"
-										element={<Navigate to="/profiles" replace />}
-									/>
-									<Route
-										path="config/presets/:presetId"
-										element={<LegacyPresetRedirect />}
-									/>
-									<Route
-										path="config/suits/:suitId"
-										element={<LegacySuitRedirect />}
-									/>
-									<Route
-										path="config/profiles/:suitId"
-										element={<LegacySuitRedirect />}
-									/>
-									<Route path="market" element={<CatalogProvider><MarketPage /></CatalogProvider>} />
-									<Route path="market/:registryKey" element={<CatalogProvider><MarketDetailPage /></CatalogProvider>} />
-									<Route path="servers" element={<ServerListPage />} />
-									<Route path="servers/:serverId" element={<ServerDetailPage />} />
-									<Route
-										path="servers/:serverId/instances/:instanceId"
-										element={<InstanceDetailPage />}
-									/>
-									{/* Tools route removed */}
-									<Route path="clients" element={<ClientsPage />} />
-									<Route
-										path="clients/:identifier/direct/:serverId"
-										element={<ClientDirectCapabilitiesPage />}
-									/>
-									<Route
-										path="clients/:identifier"
-										element={
-											<Suspense fallback={null}>
-												<ClientDetailPage />
-											</Suspense>
-										}
-									/>
-									<Route path="runtime" element={<RuntimePage />} />
-									<Route path="secrets" element={<SecretsPage />} />
-									<Route path="audit" element={<AuditPage />} />
-									<Route path="api-docs" element={<ApiDocsPage />} />
-									<Route path="account" element={<Navigate to="/" replace />} />
-									<Route path="settings" element={<SettingsPage />} />
-
-									<Route path="404" element={<NotFoundPage />} />
-									<Route path="*" element={<Navigate to="/404" replace />} />
-								</Route>
-							</Routes>
-						</DesktopFullBoardPathBridge>
-					</BrowserRouter>
-				</MasterPasswordGate>
-			</BackendReadinessGate>
+			{demoMode ? router : (
+				<BackendReadinessGate>
+					<MasterPasswordGate>{router}</MasterPasswordGate>
+				</BackendReadinessGate>
+			)}
 		</QueryClientProvider>
 	);
 }
