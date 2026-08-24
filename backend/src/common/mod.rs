@@ -11,6 +11,7 @@ pub mod database;
 pub mod env;
 pub mod http;
 pub mod json;
+pub mod json5_config;
 pub mod path;
 pub mod paths;
 pub mod profile;

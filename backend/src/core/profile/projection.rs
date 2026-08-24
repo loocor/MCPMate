@@ -4,39 +4,44 @@
 //! Board authoring sanitizes trailing newlines only; preview and save projection
 //! are authoritative on the backend.
 
-use std::{path::PathBuf, sync::OnceLock};
+use std::sync::OnceLock;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+use crate::common::json5_config::{load_json5_object_from_path, parse_json5_object, resolve_env_config_override};
+
+const BUNDLED_PROJECTION_CONFIG: &str = include_str!("../../../config/projection.json5");
+const PROJECTION_CONFIG_LABEL: &str = "projection config";
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ProjectionConfig {
     pub workflow: WorkflowProjectionConfig,
     pub skills: SkillsProjectionConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct WorkflowProjectionConfig {
     pub capability: CapabilityProjectionConfig,
     pub external: ExternalProjectionConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CapabilityProjectionConfig {
     pub list_threshold: usize,
     pub section_intro: CapabilitySectionIntroConfig,
     pub item: CapabilityItemTemplates,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CapabilitySectionIntroConfig {
     pub base: String,
     pub on_demand: String,
     pub direct: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CapabilityItemTemplates {
     pub direct_only: String,
     pub on_demand_only: String,
@@ -44,13 +49,13 @@ pub struct CapabilityItemTemplates {
     pub on_demand_with_guide: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExternalProjectionConfig {
     pub with_guide: String,
     pub link_only: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SkillsProjectionConfig {
     pub compatibility: String,
 }
@@ -65,7 +70,8 @@ static PROJECTION_CONFIG: OnceLock<ProjectionConfig> = OnceLock::new();
 pub fn projection_config() -> &'static ProjectionConfig {
     PROJECTION_CONFIG.get_or_init(|| {
         load_projection_config().unwrap_or_else(|error| {
-            panic!("load projection config: {error}");
+            tracing::warn!("Failed to load projection config: {error}");
+            default_projection_config()
         })
     })
 }
@@ -176,40 +182,72 @@ pub fn skill_compatibility(server_names: &[String]) -> Option<String> {
     ))
 }
 
-fn resolve_projection_config_path() -> PathBuf {
-    if let Ok(path_hint) = std::env::var("MCPMATE_PROJECTION_CONFIG")
-        && !path_hint.trim().is_empty()
-    {
-        return PathBuf::from(path_hint);
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/projection.json5")
+fn default_projection_config() -> ProjectionConfig {
+    parse_projection_config(BUNDLED_PROJECTION_CONFIG, "bundled projection.json5")
+        .expect("bundled projection.json5 must match ProjectionConfig schema")
 }
 
+/// Load projection templates from override path or bundled JSON5.
+///
+/// Override failures return an error; callers should fall back to [`default_projection_config`].
 fn load_projection_config() -> anyhow::Result<ProjectionConfig> {
-    let path = resolve_projection_config_path();
-    let content =
-        std::fs::read_to_string(&path).map_err(|error| anyhow::anyhow!("read {}: {error}", path.display()))?;
-    let value: serde_json::Value =
-        json5::from_str(&content).map_err(|error| anyhow::anyhow!("parse {}: {error}", path.display()))?;
-    if !value.is_object() {
-        anyhow::bail!("projection config at {} must be a JSON5 object", path.display());
+    if let Some(path) = resolve_env_config_override("MCPMATE_PROJECTION_CONFIG", "Create PathService for projection config")? {
+        return load_json5_object_from_path(&path, PROJECTION_CONFIG_LABEL);
     }
-    serde_json::from_value(value).map_err(|error| anyhow::anyhow!("decode {}: {error}", path.display()))
+    parse_projection_config(BUNDLED_PROJECTION_CONFIG, "bundled projection.json5")
+}
+
+fn parse_projection_config(
+    content: &str,
+    source: &str,
+) -> anyhow::Result<ProjectionConfig> {
+    parse_json5_object(content, source, PROJECTION_CONFIG_LABEL)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+    use tempfile::tempdir;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn bundled_projection_json5_is_well_formed_object() {
-        let path = resolve_projection_config_path();
-        let content = std::fs::read_to_string(&path).expect("read projection config");
-        let value: serde_json::Value = json5::from_str(&content).expect("parse projection config");
-        assert!(value.is_object(), "projection.json5 root must be object");
-        let config: ProjectionConfig = serde_json::from_value(value).expect("decode projection config");
-        assert!(config.workflow.capability.list_threshold >= 1);
-        assert!(!config.skills.compatibility.is_empty());
+    fn bundled_projection_config_is_loadable_and_valid() {
+        let bundled = parse_projection_config(BUNDLED_PROJECTION_CONFIG, "bundled projection.json5")
+            .expect("decode bundled projection config");
+        assert!(bundled.workflow.capability.list_threshold >= 1);
+        assert!(!bundled.skills.compatibility.is_empty());
+
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        unsafe { std::env::remove_var("MCPMATE_PROJECTION_CONFIG") };
+        let loaded = load_projection_config().expect("load bundled projection config");
+        assert_eq!(loaded, bundled);
+    }
+
+    #[test]
+    fn load_projection_config_requires_object_root() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("projection.json5");
+        std::fs::write(&config_path, "[1, 2, 3]").expect("write invalid root");
+
+        unsafe { std::env::set_var("MCPMATE_PROJECTION_CONFIG", &config_path) };
+        let result = load_projection_config();
+        assert!(result.is_err());
+        let message = format!("{}", result.expect_err("load error"));
+        assert!(message.contains("must be a JSON5 object"));
+        unsafe { std::env::remove_var("MCPMATE_PROJECTION_CONFIG") };
+    }
+
+    #[test]
+    fn projection_config_loader_falls_back_to_default_when_override_missing() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        unsafe { std::env::set_var("MCPMATE_PROJECTION_CONFIG", "/tmp/mcpmate-missing-projection.json5") };
+        let effective = load_projection_config().unwrap_or_else(|_| default_projection_config());
+        assert_eq!(effective, default_projection_config());
+        unsafe { std::env::remove_var("MCPMATE_PROJECTION_CONFIG") };
     }
 
     #[test]
