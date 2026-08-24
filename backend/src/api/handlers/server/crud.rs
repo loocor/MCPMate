@@ -1,6 +1,11 @@
 // MCPMate Proxy API handlers for MCP server CRUD operations
 // Contains handler functions for creating, updating, and importing servers
 
+#![expect(
+    clippy::result_large_err,
+    reason = "Propagates CapabilityReadError from capability discovery."
+)]
+
 use super::{basic::load_server_transport_validity, common, shared::*};
 use crate::api::models::server::{
     ServerCapabilityDiscoveryData, ServerCreateReq, ServerDeleteReq, ServerDetailsData, ServerDetailsResp,

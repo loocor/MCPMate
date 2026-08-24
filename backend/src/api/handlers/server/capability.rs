@@ -522,10 +522,10 @@ mod tests {
             instance_id: "instance-a".to_string(),
             connection_generation: None,
             owner_source: OwnerSource::Fresh,
-            error: CapabilityOwnerError::Authentication {
+            error: Box::new(CapabilityOwnerError::Authentication {
                 code: CapabilityAuthenticationFailureCode::InsufficientScope,
                 reason: "upstream requires an additional scope".to_string(),
-            },
+            }),
         };
 
         let failure = capability_authentication_failure(&error).expect("authentication remains structured");

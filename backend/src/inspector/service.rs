@@ -1428,12 +1428,12 @@ mod tests {
             operation: "tools/list",
             kind: CapabilityType::Tools,
             catalog_error: None,
-            existing: Some(DiscoveryAttemptFailure {
+            existing: Some(Box::new(DiscoveryAttemptFailure {
                 instance_id: None,
                 connection_generation: None,
                 source: OwnerSource::Existing,
                 error: CapabilityAttemptError::Owner(CapabilityOwnerError::Timeout { timeout_ms: 250 }),
-            }),
+            })),
             fresh: None,
         };
 
@@ -1450,7 +1450,7 @@ mod tests {
             operation: "tools/list",
             kind: CapabilityType::Tools,
             catalog_error: None,
-            existing: Some(DiscoveryAttemptFailure {
+            existing: Some(Box::new(DiscoveryAttemptFailure {
                 instance_id: Some("instance-a".to_string()),
                 connection_generation: None,
                 source: OwnerSource::Existing,
@@ -1459,7 +1459,7 @@ mod tests {
                     message: Some("request timeout".to_string()),
                     timeout_ms: Some(250),
                 }),
-            }),
+            })),
             fresh: None,
         };
 
@@ -1481,10 +1481,10 @@ mod tests {
             instance_id: "instance-a".to_string(),
             connection_generation: None,
             owner_source: OwnerSource::Existing,
-            error: CapabilityOwnerError::Authentication {
+            error: Box::new(CapabilityOwnerError::Authentication {
                 code: crate::core::capability::connection_provider::CapabilityAuthenticationFailureCode::AuthRequired,
                 reason: "token expired".to_string(),
-            },
+            }),
         };
 
         let response = map_capability_list_error(error.into()).into_response();
@@ -1500,14 +1500,14 @@ mod tests {
             operation: "tools/list",
             kind: CapabilityType::Tools,
             catalog_error: None,
-            existing: Some(DiscoveryAttemptFailure {
+            existing: Some(Box::new(DiscoveryAttemptFailure {
                 instance_id: None,
                 connection_generation: None,
                 source: OwnerSource::Existing,
                 error: CapabilityAttemptError::Owner(CapabilityOwnerError::Missing {
                     reason: "no connection".to_string(),
                 }),
-            }),
+            })),
             fresh: None,
         };
 

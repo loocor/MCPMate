@@ -95,7 +95,7 @@ describe("release workflow contract", () => {
     expect(dockerWorkflow).toContain("  pull_request:\n    branches:\n      - main");
     expect(dockerWorkflow.match(/default: false/g)).toHaveLength(2);
     expect(dockerWorkflow).not.toContain('    tags:\n      - "v*"');
-    expect(dockerWorkflow).toContain("uses: dtolnay/rust-toolchain@1.97.1");
+    expect(dockerWorkflow).toContain("uses: dtolnay/rust-toolchain@1.98.0");
     expect(dockerWorkflow).toContain("enable=${{ inputs.push_image == true }}");
     expect(dockerWorkflow).toContain("push: ${{ inputs.push_image == true }}");
     expect(dockerJob).toContain("uses: ./.github/workflows/docker-publish.yml");
