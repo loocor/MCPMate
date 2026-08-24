@@ -55,21 +55,25 @@ describe("buildWorkflowCapabilityOptions", () => {
 				server_id: "server-a",
 				label: "server_a__lookup",
 				description: "Look up a record by identifier.",
+				kind: "tool",
 			},
 			{
 				ref_id: "resource:server-a:doc",
 				server_id: "server-a",
 				label: "server-a://docs/readme.md",
+				kind: "resource",
 			},
 			{
 				ref_id: "prompt:server-a:summarize",
 				server_id: "server-a",
 				label: "server_a__summarize",
+				kind: "prompt",
 			},
 			{
 				ref_id: "template:server-a:issues",
 				server_id: "server-a",
 				label: "server-a://issues/{id}",
+				kind: "template",
 			},
 		]);
 	});
@@ -101,6 +105,7 @@ describe("buildWorkflowCapabilityOptions", () => {
 				ref_id: "tool:server-b:fetch",
 				server_id: "server-b",
 				label: "fetch-page",
+				kind: "tool",
 			},
 		]);
 	});

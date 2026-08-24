@@ -1,10 +1,13 @@
 import type { WorkflowBinding, WorkflowSpecification, WorkflowStep } from "./types";
 
+export type WorkflowCapabilityKind = "tool" | "prompt" | "resource" | "template";
+
 export interface WorkflowCapabilityOption {
 	ref_id: string;
 	server_id: string;
 	label: string;
 	description?: string;
+	kind: WorkflowCapabilityKind;
 }
 
 interface WorkflowCapabilityBatch {
@@ -35,6 +38,7 @@ function option(
 	refKeys: string[],
 	labelKeys: string[],
 	serverId: string,
+	kind: WorkflowCapabilityKind,
 ): WorkflowCapabilityOption | null {
 	if (!item || typeof item !== "object" || Array.isArray(item)) {
 		return null;
@@ -47,8 +51,8 @@ function option(
 	const label = readString(record, labelKeys) ?? refId;
 	const description = readString(record, ["description"]);
 	return description
-		? { ref_id: refId, server_id: serverId, label, description }
-		: { ref_id: refId, server_id: serverId, label };
+		? { ref_id: refId, server_id: serverId, label, description, kind }
+		: { ref_id: refId, server_id: serverId, label, kind };
 }
 
 export function buildWorkflowCapabilityOptions(
@@ -62,6 +66,7 @@ export function buildWorkflowCapabilityOptions(
 				["ref_id", "id"],
 				["unique_name", "tool_name", "name"],
 				server.id,
+				"tool",
 			);
 			if (mapped) options.push(mapped);
 		}
@@ -71,6 +76,7 @@ export function buildWorkflowCapabilityOptions(
 				["ref_id", "id"],
 				["unique_uri", "resource_uri", "uri"],
 				server.id,
+				"resource",
 			);
 			if (mapped) options.push(mapped);
 		}
@@ -80,6 +86,7 @@ export function buildWorkflowCapabilityOptions(
 				["ref_id", "id"],
 				["unique_name", "prompt_name", "name"],
 				server.id,
+				"prompt",
 			);
 			if (mapped) options.push(mapped);
 		}
@@ -89,11 +96,22 @@ export function buildWorkflowCapabilityOptions(
 				["ref_id", "id"],
 				["unique_uri_template", "uri_template", "uriTemplate"],
 				server.id,
+				"template",
 			);
 			if (mapped) options.push(mapped);
 		}
 	}
 	return options;
+}
+
+export function resolveWorkflowCapabilityKind(
+	name: string,
+	options: WorkflowCapabilityOption[],
+): WorkflowCapabilityKind {
+	const match = options.find((option) => option.label === name);
+	if (match) return match.kind;
+	if (name.includes("://") || name.includes("/")) return "resource";
+	return "tool";
 }
 
 export interface WorkflowStepDraft {
