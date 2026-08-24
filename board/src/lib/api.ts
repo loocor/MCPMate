@@ -3631,7 +3631,9 @@ export function useTokenEstimate(
 export function useProfileTokenChartSource(
 	profileId: string | undefined,
 	enabledByComponentId: ReadonlyMap<string, boolean>,
+	options?: { enabled?: boolean },
 ) {
+	const queryEnabled = !!profileId && options?.enabled !== false;
 	const capabilityFingerprint = useMemo(
 		() =>
 			[...enabledByComponentId.entries()]
@@ -3647,7 +3649,7 @@ export function useProfileTokenChartSource(
 			if (!profileId) return null;
 			return capabilityTokenLedgerApi.get(profileId);
 		},
-		enabled: !!profileId,
+		enabled: queryEnabled,
 		staleTime: 5 * 60 * 1000,
 		refetchOnWindowFocus: false,
 		retry: (failureCount, error) => {
@@ -3667,7 +3669,7 @@ export function useProfileTokenChartSource(
 			if (!profileId) return null;
 			return tokenEstimateApi.getEstimate(profileId);
 		},
-		enabled: !!profileId && ledgerMissingRoute,
+		enabled: queryEnabled && ledgerMissingRoute,
 		staleTime: 0,
 		retry: 1,
 	});
