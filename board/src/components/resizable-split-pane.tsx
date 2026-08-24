@@ -11,6 +11,11 @@ interface ResizableSplitPaneProps {
 	minLeftWidth?: number;
 	maxLeftWidth?: number;
 	preferRightPanelSpace?: boolean;
+	/** When true, the trailing panel keeps a resizable fixed width. */
+	trailingFixed?: boolean;
+	initialTrailingWidth?: number;
+	minTrailingWidth?: number;
+	maxTrailingWidth?: number;
 }
 
 export function ResizableSplitPane({
@@ -21,37 +26,47 @@ export function ResizableSplitPane({
 	minLeftWidth = 240,
 	maxLeftWidth = 460,
 	preferRightPanelSpace = false,
+	trailingFixed = false,
+	initialTrailingWidth = 224,
+	minTrailingWidth = 160,
+	maxTrailingWidth = 400,
 }: ResizableSplitPaneProps) {
-	const [leftWidth, setLeftWidth] = useState(initialLeftWidth);
+	const [leadingWidth, setLeadingWidth] = useState(initialLeftWidth);
+	const [trailingWidth, setTrailingWidth] = useState(initialTrailingWidth);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const containerWidthRef = useRef<number | null>(null);
+	const panelWidth = trailingFixed ? trailingWidth : leadingWidth;
+	const setPanelWidth = trailingFixed ? setTrailingWidth : setLeadingWidth;
+	const minPanelWidth = trailingFixed ? minTrailingWidth : minLeftWidth;
+	const maxPanelWidth = trailingFixed ? maxTrailingWidth : maxLeftWidth;
+	const shrinkOnContainerResize = trailingFixed || preferRightPanelSpace;
 
 	useEffect(() => {
-		if (!preferRightPanelSpace || !containerRef.current) return;
+		if (!shrinkOnContainerResize || !containerRef.current) return;
 
 		const observer = new ResizeObserver(([entry]) => {
 			const width = entry.contentRect.width;
 			const previousWidth = containerWidthRef.current;
 			containerWidthRef.current = width;
 			if (previousWidth !== null && width < previousWidth) {
-				setLeftWidth((current) =>
-					Math.max(minLeftWidth, current - (previousWidth - width)),
+				setPanelWidth((current) =>
+					Math.max(minPanelWidth, current - (previousWidth - width)),
 				);
 			}
 		});
 		observer.observe(containerRef.current);
 		return () => observer.disconnect();
-	}, [minLeftWidth, preferRightPanelSpace]);
+	}, [minPanelWidth, shrinkOnContainerResize, setPanelWidth]);
 
 	const handleDividerPointerDown = useCallback(
 		(event: React.PointerEvent<HTMLButtonElement>) => {
 			event.preventDefault();
 			const startX = event.clientX;
-			const startWidth = leftWidth;
+			const startWidth = panelWidth;
 			const handlePointerMove = (moveEvent: PointerEvent) => {
-				const nextWidth = startWidth + moveEvent.clientX - startX;
-				const clampedWidth = Math.min(maxLeftWidth, Math.max(minLeftWidth, nextWidth));
-				setLeftWidth(clampedWidth);
+				const delta = moveEvent.clientX - startX;
+				const nextWidth = trailingFixed ? startWidth - delta : startWidth + delta;
+				setPanelWidth(Math.min(maxPanelWidth, Math.max(minPanelWidth, nextWidth)));
 			};
 			const handlePointerUp = () => {
 				window.removeEventListener("pointermove", handlePointerMove);
@@ -61,14 +76,18 @@ export function ResizableSplitPane({
 			window.addEventListener("pointermove", handlePointerMove);
 			window.addEventListener("pointerup", handlePointerUp);
 		},
-		[leftWidth, maxLeftWidth, minLeftWidth],
+		[maxPanelWidth, minPanelWidth, panelWidth, setPanelWidth, trailingFixed],
 	);
+
+	const gridTemplateColumns = trailingFixed
+		? `minmax(0, 1fr) 8px ${panelWidth}px`
+		: `${panelWidth}px 8px minmax(0, 1fr)`;
 
 	return (
 		<div
 			ref={containerRef}
 			className={cn("grid min-h-0 flex-1 overflow-hidden", className)}
-			style={{ gridTemplateColumns: `${leftWidth}px 8px minmax(0, 1fr)` }}
+			style={{ gridTemplateColumns }}
 		>
 			{left}
 			<button

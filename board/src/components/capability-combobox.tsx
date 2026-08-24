@@ -145,7 +145,7 @@ export function CapabilityCombobox<T extends CapabilityRecordLike>(props: Capabi
         <Button
           ref={triggerRef}
           variant="outline"
-          className={cn("w-full justify-between", triggerClassName)}
+          className={cn("w-full justify-between px-3 font-normal", triggerClassName)}
           type="button"
           aria-expanded={open}
         >
@@ -165,11 +165,11 @@ export function CapabilityCombobox<T extends CapabilityRecordLike>(props: Capabi
           {selectedTrailing ? (
             <span className="ml-2 flex shrink-0 items-center">{selectedTrailing}</span>
           ) : null}
-          <span className="ml-2 flex items-center gap-1 text-slate-500">
+          <span className="flex items-center gap-1 text-muted-foreground">
             {loading ? (
               <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
             ) : null}
-            <ChevronDown className="h-4 w-4 opacity-60" aria-hidden="true" />
+            <ChevronDown className="h-4 w-4 opacity-50" aria-hidden="true" />
           </span>
         </Button>
       </PopoverTrigger>
