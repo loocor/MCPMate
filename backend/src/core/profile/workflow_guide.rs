@@ -13,6 +13,10 @@ use super::materials::{
     MAX_UPLOAD_BYTES, PackageFileDeletionLease, StagedPackageFile, StagedSkillDefinition, WorkflowMaterialsService,
     ensure_skill_name, validate_relative_path,
 };
+use super::projection::{
+    capability_item_body, capability_section_intro, external_reference_body, format_projected_skill_markdown,
+    projection_config, skill_compatibility,
+};
 use super::workflow::{
     WorkflowBindingCommand, WorkflowBindingPolicy, WorkflowSpecificationError, WorkflowSpecificationSaveCommand,
     WorkflowSpecificationService, WorkflowStepCommand, verify_workflow_profile,
@@ -20,6 +24,12 @@ use super::workflow::{
 
 static CAPABILITY_START: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^:::capability\s+(\{.*\})\s*$").expect("valid Workflow Guide capability directive regex")
+});
+static EXTERNAL_START: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^:::external\s+(\{.*\})\s*$").expect("valid Workflow Guide external directive regex"));
+static STANDALONE_EXTERNAL_REFERENCE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*\[([^\]\n]+)\]\((references/[^\s)#]+\.md)(?:#[^\s)]+)?\)\s*$")
+        .expect("valid standalone external Markdown reference regex")
 });
 static DIRECTIVE_END: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^:::\s*$").expect("valid Workflow Guide directive end regex"));
@@ -35,11 +45,11 @@ static UUID_REFERENCE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
         .expect("valid UUID reference regex")
 });
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkflowGuide {
     pub headings: Vec<WorkflowGuideHeading>,
     pub capabilities: Vec<WorkflowGuideCapability>,
+    pub external_references: Vec<WorkflowGuideExternalReference>,
     pub package_paths: BTreeSet<String>,
 }
 
@@ -54,6 +64,15 @@ pub struct WorkflowGuideHeading {
 pub struct WorkflowGuideCapability {
     pub name: String,
     pub exposure: WorkflowBindingPolicy,
+    pub guide: String,
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, schemars::JsonSchema, serde::Serialize)]
+pub struct WorkflowGuideExternalReference {
+    pub title: String,
+    pub path: String,
     pub guide: String,
     pub start_line: usize,
     pub end_line: usize,
@@ -487,13 +506,18 @@ impl WorkflowGuideService {
             .fetch_one(&mut *transaction)
             .await?;
         let root = candidate_graph.root()?;
+        let effective_exposure = effective_exposure_by_name(&candidate_graph.combined.capabilities);
+        let server_names = load_bound_server_display_names(&mut transaction, &command.profile_id).await?;
+        let compatibility = skill_compatibility(&server_names);
         let projected_skill = format_skill_definition(
             &skill_name,
             &profile.0,
             &profile.1,
-            &render_workflow_skill(&root.markdown, &root.guide).markdown,
+            compatibility.as_deref(),
+            &render_workflow_skill(&root.markdown, &root.guide, &effective_exposure).markdown,
         );
-        let active_document = render_workflow_skill(&active_document.markdown, &active_document.guide);
+        let active_document =
+            render_workflow_skill(&active_document.markdown, &active_document.guide, &effective_exposure);
         if UUID_REFERENCE.is_match(&projected_skill)
             || projected_skill.contains("skill://")
             || UUID_REFERENCE.is_match(&active_document.markdown)
@@ -1497,6 +1521,7 @@ fn build_guide_document_graph(
     let mut combined = WorkflowGuide {
         headings: Vec::new(),
         capabilities: Vec::new(),
+        external_references: Vec::new(),
         package_paths: BTreeSet::new(),
     };
     for document in &documents {
@@ -1550,6 +1575,15 @@ fn collect_capabilities_in_recursive_order(
             )
         })
         .collect::<Vec<_>>();
+    events.extend(document.guide.external_references.iter().cloned().map(|external| {
+        (
+            line_offsets
+                .get(external.start_line.saturating_sub(1))
+                .copied()
+                .unwrap_or(usize::MAX),
+            GuideOrderEvent::ExternalDocument(external.path),
+        )
+    }));
     events.extend(
         ordered_external_markdown_references(&document.relative_path, &document.markdown)?
             .into_iter()
@@ -1669,8 +1703,17 @@ pub(crate) async fn stage_projection_in_transaction(
         .fetch_one(&mut **transaction)
         .await?;
     let root = graph.root()?;
-    let rendered = render_workflow_skill(&markdown, &root.guide);
-    let skill = format_skill_definition(&skill_name, &profile.0, &profile.1, &rendered.markdown);
+    let effective_exposure = effective_exposure_by_name(&combined_guide.capabilities);
+    let server_names = load_bound_server_display_names(transaction, profile_id).await?;
+    let compatibility = skill_compatibility(&server_names);
+    let rendered = render_workflow_skill(&markdown, &root.guide, &effective_exposure);
+    let skill = format_skill_definition(
+        &skill_name,
+        &profile.0,
+        &profile.1,
+        compatibility.as_deref(),
+        &rendered.markdown,
+    );
     if UUID_REFERENCE.is_match(&skill) || skill.contains("skill://") {
         return Err(WorkflowGuideError::InvalidStorage(
             "projected Skill contains an opaque identifier".to_string(),
@@ -1683,7 +1726,7 @@ pub(crate) async fn stage_projection_in_transaction(
         .iter()
         .filter(|document| document.package_file_id.is_some())
     {
-        let rendered = render_workflow_skill(&document.markdown, &document.guide);
+        let rendered = render_workflow_skill(&document.markdown, &document.guide, &effective_exposure);
         let content = if document.markdown.ends_with('\n') {
             format!("{}\n", rendered.markdown)
         } else {
@@ -2013,17 +2056,21 @@ async fn verify_package_paths(
 pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<WorkflowGuideParseError>> {
     let mut headings = Vec::new();
     let mut capabilities = Vec::new();
+    let mut external_references = Vec::new();
     let mut package_paths = BTreeSet::new();
     let mut errors = Vec::new();
     let mut fence = None;
-    let mut active: Option<ActiveCapability> = None;
+    let mut active_capability: Option<ActiveCapability> = None;
+    let mut active_external: Option<ActiveExternal> = None;
 
     for (index, line) in markdown.lines().enumerate() {
         let line_number = index + 1;
         if let Some(active_fence) = fence {
             if closes_fence(line, active_fence) {
                 fence = None;
-                if let Some(active) = active.as_mut() {
+                if let Some(active) = active_capability.as_mut() {
+                    active.lines.push(line.to_string());
+                } else if let Some(active) = active_external.as_mut() {
                     active.lines.push(line.to_string());
                 }
                 continue;
@@ -2034,33 +2081,59 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
                     message: "Workflow Guide directives and references are not allowed in fenced code".to_string(),
                 });
             }
-            if let Some(active) = active.as_mut() {
+            if let Some(active) = active_capability.as_mut() {
+                active.lines.push(line.to_string());
+            } else if let Some(active) = active_external.as_mut() {
                 active.lines.push(line.to_string());
             }
             continue;
         }
         if let Some(opening_fence) = opening_fence(line) {
             fence = Some(opening_fence);
-            if let Some(active) = active.as_mut() {
+            if let Some(active) = active_capability.as_mut() {
+                active.lines.push(line.to_string());
+            } else if let Some(active) = active_external.as_mut() {
                 active.lines.push(line.to_string());
             }
             continue;
         }
 
-        if let Some(active_capability) = active.as_mut() {
+        if active_capability.is_some() {
             if DIRECTIVE_END.is_match(line) {
-                let active_capability = active.take().expect("active Workflow Guide capability exists");
-                let guide = active_capability.lines.join("\n").trim().to_string();
+                let closed = active_capability
+                    .take()
+                    .expect("active Workflow Guide capability exists");
+                let guide = closed.lines.join("\n").trim().to_string();
                 collect_package_references(&guide, &mut package_paths);
                 capabilities.push(WorkflowGuideCapability {
-                    name: active_capability.name,
-                    exposure: active_capability.exposure,
+                    name: closed.name,
+                    exposure: closed.exposure,
                     guide,
-                    start_line: active_capability.start_line,
+                    start_line: closed.start_line,
                     end_line: line_number,
                 });
-            } else {
-                active_capability.lines.push(line.to_string());
+            } else if let Some(open) = active_capability.as_mut() {
+                open.lines.push(line.to_string());
+            }
+            continue;
+        }
+        if active_external.is_some() {
+            if DIRECTIVE_END.is_match(line) {
+                let closed = active_external
+                    .take()
+                    .expect("active Workflow Guide external reference exists");
+                let guide = closed.lines.join("\n").trim().to_string();
+                collect_package_references(&guide, &mut package_paths);
+                package_paths.insert(closed.path.clone());
+                external_references.push(WorkflowGuideExternalReference {
+                    title: closed.title,
+                    path: closed.path,
+                    guide,
+                    start_line: closed.start_line,
+                    end_line: line_number,
+                });
+            } else if let Some(open) = active_external.as_mut() {
+                open.lines.push(line.to_string());
             }
             continue;
         }
@@ -2068,7 +2141,7 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
         if let Some(captures) = CAPABILITY_START.captures(line) {
             match serde_json::from_str::<CapabilityDirectiveHeader>(&captures[1]) {
                 Ok(header) if !header.name.trim().is_empty() && !header.name.contains(['\n', '\r']) => {
-                    active = Some(ActiveCapability {
+                    active_capability = Some(ActiveCapability {
                         name: header.name,
                         exposure: header.exposure,
                         start_line: line_number,
@@ -2093,10 +2166,44 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
             });
             continue;
         }
+        if let Some(captures) = EXTERNAL_START.captures(line) {
+            match serde_json::from_str::<ExternalDirectiveHeader>(&captures[1]) {
+                Ok(header)
+                    if !header.title.trim().is_empty()
+                        && !header.title.contains(['\n', '\r'])
+                        && header.path.starts_with("references/")
+                        && header.path.ends_with(".md")
+                        && !header.path.contains(['\n', '\r']) =>
+                {
+                    active_external = Some(ActiveExternal {
+                        title: header.title,
+                        path: header.path,
+                        start_line: line_number,
+                        lines: Vec::new(),
+                    });
+                }
+                Ok(_) => errors.push(WorkflowGuideParseError {
+                    line: line_number,
+                    message: "External reference title and references/*.md path must not be empty".to_string(),
+                }),
+                Err(error) => errors.push(WorkflowGuideParseError {
+                    line: line_number,
+                    message: format!("invalid External directive: {error}"),
+                }),
+            }
+            continue;
+        }
+        if line.trim_start().starts_with(":::external") {
+            errors.push(WorkflowGuideParseError {
+                line: line_number,
+                message: "invalid External directive; expected JSON title and path".to_string(),
+            });
+            continue;
+        }
         if DIRECTIVE_END.is_match(line) {
             errors.push(WorkflowGuideParseError {
                 line: line_number,
-                message: "Capability directive end has no matching start".to_string(),
+                message: "Workflow Guide directive end has no matching start".to_string(),
             });
             continue;
         }
@@ -2110,10 +2217,16 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
         collect_package_references(line, &mut package_paths);
     }
 
-    if let Some(active_capability) = active {
+    if let Some(active_capability) = active_capability {
         errors.push(WorkflowGuideParseError {
             line: active_capability.start_line,
             message: format!("Capability '{}' directive is not closed", active_capability.name),
+        });
+    }
+    if let Some(active_external) = active_external {
+        errors.push(WorkflowGuideParseError {
+            line: active_external.start_line,
+            message: format!("External reference '{}' directive is not closed", active_external.title),
         });
     }
     for (index, line) in markdown.lines().enumerate() {
@@ -2135,6 +2248,7 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
         Ok(WorkflowGuide {
             headings,
             capabilities,
+            external_references,
             package_paths,
         })
     } else {
@@ -2142,24 +2256,96 @@ pub fn parse_workflow_guide(markdown: &str) -> Result<WorkflowGuide, Vec<Workflo
     }
 }
 
+pub fn effective_exposure_by_name(capabilities: &[WorkflowGuideCapability]) -> BTreeMap<String, WorkflowBindingPolicy> {
+    let mut effective = BTreeMap::new();
+    for capability in capabilities {
+        match effective.get(&capability.name) {
+            Some(WorkflowBindingPolicy::Direct) => {}
+            _ => {
+                effective.insert(capability.name.clone(), capability.exposure);
+            }
+        }
+    }
+    effective
+}
+
 pub fn render_workflow_skill(
     markdown: &str,
     guide: &WorkflowGuide,
+    effective_exposure: &BTreeMap<String, WorkflowBindingPolicy>,
 ) -> RenderedWorkflowSkill {
     let capabilities_by_start = guide
         .capabilities
         .iter()
         .map(|capability| (capability.start_line, capability))
         .collect::<BTreeMap<_, _>>();
-    let mut output = Vec::new();
+    let externals_by_start = guide
+        .external_references
+        .iter()
+        .map(|external| (external.start_line, external))
+        .collect::<BTreeMap<_, _>>();
+    let mut output: Vec<String> = Vec::new();
     let lines = markdown.lines().collect::<Vec<_>>();
     let mut index = 0;
+    let mut capability_section_shown = false;
+    let use_capability_list_style = guide.capabilities.len() >= projection_config().workflow.capability.list_threshold;
+    let (has_meta_on_demand, has_direct) = capability_exposure_summary(&guide.capabilities, effective_exposure);
 
     while index < lines.len() {
         let line_number = index + 1;
         if let Some(capability) = capabilities_by_start.get(&line_number) {
-            output.push(render_capability_occurrence(capability));
+            let exposure = *effective_exposure.get(&capability.name).unwrap_or(&capability.exposure);
+            if !capability_section_shown {
+                push_blank_line_if_needed(&mut output);
+                output.push(capability_section_intro(has_meta_on_demand, has_direct));
+                capability_section_shown = true;
+            }
+            let previous_is_list_item = output.last().is_some_and(|line| line.starts_with("- "));
+            if !use_capability_list_style || !previous_is_list_item {
+                push_blank_line_if_needed(&mut output);
+            }
+            let rendered = render_capability_occurrence(capability, exposure, use_capability_list_style);
+            output.push(rendered);
+            let followed_by_capability = next_capability_after(&lines, capability.end_line, &capabilities_by_start);
+            if (!use_capability_list_style || !followed_by_capability)
+                && lines
+                    .get(capability.end_line)
+                    .is_some_and(|line| !line.trim().is_empty())
+            {
+                output.push(String::new());
+            }
             index = capability.end_line;
+            continue;
+        }
+        if let Some(external) = externals_by_start.get(&line_number) {
+            push_blank_line_if_needed(&mut output);
+            output.push(external_reference_body(
+                &external.title,
+                &external.path,
+                &external.guide,
+            ));
+            if lines.get(external.end_line).is_some_and(|line| !line.trim().is_empty()) {
+                output.push(String::new());
+            }
+            index = external.end_line;
+            continue;
+        }
+        if let Some(captures) = STANDALONE_EXTERNAL_REFERENCE.captures(lines[index]) {
+            push_blank_line_if_needed(&mut output);
+            output.push(external_reference_body(&captures[1], &captures[2], ""));
+            index += 1;
+            continue;
+        }
+        if use_capability_list_style
+            && lines[index].trim().is_empty()
+            && is_blank_between_consecutive_capabilities(
+                line_number,
+                &lines,
+                &guide.capabilities,
+                &capabilities_by_start,
+            )
+        {
+            index += 1;
             continue;
         }
         output.push(lines[index].to_string());
@@ -2171,11 +2357,24 @@ pub fn render_workflow_skill(
     }
 }
 
+struct ActiveExternal {
+    title: String,
+    path: String,
+    start_line: usize,
+    lines: Vec<String>,
+}
+
 struct ActiveCapability {
     name: String,
     exposure: WorkflowBindingPolicy,
     start_line: usize,
     lines: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ExternalDirectiveHeader {
+    title: String,
+    path: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -2214,6 +2413,7 @@ fn closes_fence(
 
 fn contains_reserved_workflow_guide_syntax(line: &str) -> bool {
     line.trim_start().starts_with(":::capability")
+        || line.trim_start().starts_with(":::external")
         || DIRECTIVE_END.is_match(line)
         || PACKAGE_FILE_REFERENCE.is_match(line)
 }
@@ -2239,18 +2439,116 @@ fn collect_package_references(
     );
 }
 
-fn render_capability_occurrence(capability: &WorkflowGuideCapability) -> String {
-    let exposure = match capability.exposure {
-        WorkflowBindingPolicy::Direct => "Direct",
-        WorkflowBindingPolicy::MetaOnDemand => "Meta on demand",
+fn capability_exposure_summary(
+    capabilities: &[WorkflowGuideCapability],
+    effective_exposure: &BTreeMap<String, WorkflowBindingPolicy>,
+) -> (bool, bool) {
+    let mut has_meta_on_demand = false;
+    let mut has_direct = false;
+    for capability in capabilities {
+        let exposure = *effective_exposure.get(&capability.name).unwrap_or(&capability.exposure);
+        match exposure {
+            WorkflowBindingPolicy::MetaOnDemand => has_meta_on_demand = true,
+            WorkflowBindingPolicy::Direct => has_direct = true,
+        }
+    }
+    (has_meta_on_demand, has_direct)
+}
+
+fn push_blank_line_if_needed(output: &mut Vec<String>) {
+    if output.last().is_some_and(|line| !line.trim().is_empty()) {
+        output.push(String::new());
+    }
+}
+
+fn next_capability_after(
+    lines: &[&str],
+    after_line: usize,
+    capabilities_by_start: &BTreeMap<usize, &WorkflowGuideCapability>,
+) -> bool {
+    next_non_blank_line(lines, after_line + 1)
+        .is_some_and(|line_number| capabilities_by_start.contains_key(&line_number))
+}
+
+fn next_non_blank_line(
+    lines: &[&str],
+    from_line: usize,
+) -> Option<usize> {
+    for line_number in from_line..=lines.len() {
+        if lines[line_number - 1].trim().is_empty() {
+            continue;
+        }
+        return Some(line_number);
+    }
+    None
+}
+
+fn previous_non_blank_line(
+    lines: &[&str],
+    before_line: usize,
+) -> Option<usize> {
+    for line_number in (1..=before_line).rev() {
+        if lines[line_number - 1].trim().is_empty() {
+            continue;
+        }
+        return Some(line_number);
+    }
+    None
+}
+
+fn line_in_capability(
+    line_number: usize,
+    capabilities: &[WorkflowGuideCapability],
+) -> bool {
+    capabilities
+        .iter()
+        .any(|capability| (capability.start_line..=capability.end_line).contains(&line_number))
+}
+
+fn is_blank_between_consecutive_capabilities(
+    blank_line_number: usize,
+    lines: &[&str],
+    capabilities: &[WorkflowGuideCapability],
+    capabilities_by_start: &BTreeMap<usize, &WorkflowGuideCapability>,
+) -> bool {
+    let Some(previous_line) = previous_non_blank_line(lines, blank_line_number - 1) else {
+        return false;
     };
-    if capability.guide.is_empty() {
-        format!("**Capability: {}**  \nExposure: {exposure}", capability.name)
+    let Some(next_line) = next_non_blank_line(lines, blank_line_number + 1) else {
+        return false;
+    };
+    line_in_capability(previous_line, capabilities) && capabilities_by_start.contains_key(&next_line)
+}
+
+fn format_as_markdown_list_item(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+    let mut lines = trimmed.lines();
+    let first = lines.next().expect("non-empty capability list item");
+    let mut output = format!("- {first}");
+    for line in lines {
+        if line.trim().is_empty() {
+            output.push('\n');
+        } else {
+            output.push_str("\n  ");
+            output.push_str(line);
+        }
+    }
+    output
+}
+
+fn render_capability_occurrence(
+    capability: &WorkflowGuideCapability,
+    exposure: WorkflowBindingPolicy,
+    list_style: bool,
+) -> String {
+    let body = capability_item_body(&capability.name, &capability.guide, exposure);
+    if list_style {
+        format_as_markdown_list_item(&body)
     } else {
-        format!(
-            "**Capability: {}**  \nExposure: {exposure}\n\n{}",
-            capability.name, capability.guide
-        )
+        body
     }
 }
 
@@ -2310,6 +2608,7 @@ fn format_skill_definition(
     skill_name: &str,
     profile_name: &str,
     description: &str,
+    compatibility: Option<&str>,
     body: &str,
 ) -> String {
     let description = if description.trim().is_empty() {
@@ -2317,12 +2616,25 @@ fn format_skill_definition(
     } else {
         description.trim().to_string()
     };
-    let front_matter = serde_yaml::to_string(&BTreeMap::from([
-        ("name", skill_name),
-        ("description", description.as_str()),
-    ]))
-    .expect("Skill front matter strings serialize as YAML");
-    format!("---\n{front_matter}---\n\n{body}\n")
+    format_projected_skill_markdown(skill_name, &description, compatibility, body)
+}
+
+async fn load_bound_server_display_names(
+    transaction: &mut Transaction<'_, Sqlite>,
+    profile_id: &str,
+) -> Result<Vec<String>, WorkflowGuideError> {
+    sqlx::query_scalar(
+        "SELECT DISTINCT server.name
+         FROM workflow_profile_step_bindings binding
+         JOIN capability_refs capability ON capability.ref_id = binding.ref_id
+         JOIN server_config server ON server.id = capability.server_id
+         WHERE binding.profile_id = ?
+         ORDER BY server.name",
+    )
+    .bind(profile_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(WorkflowGuideError::from)
 }
 
 async fn projection_input_fingerprint(
@@ -2767,8 +3079,14 @@ mod tests {
         )
         .expect("valid imported Skill");
         let guide = parse_workflow_guide(&body).expect("normalized Guide");
-        let rendered = render_workflow_skill(&body, &guide);
-        let skill = format_skill_definition("profile-skill", "Profile", "Profile description", &rendered.markdown);
+        let rendered = render_workflow_skill(&body, &guide, &effective_exposure_by_name(&guide.capabilities));
+        let skill = format_skill_definition(
+            "profile-skill",
+            "Profile",
+            "Profile description",
+            None,
+            &rendered.markdown,
+        );
 
         assert_eq!(skill.matches("name:").count(), 1);
         assert_eq!(skill.matches("description:").count(), 1);
@@ -2794,16 +3112,150 @@ mod tests {
     }
 
     #[test]
+    fn projects_external_directives_and_standalone_markdown_references() {
+        let directive = concat!(
+            "# Investigate\n\n",
+            ":::external {\"title\":\"Evidence index\",\"path\":\"references/evidence-index.md\"}\n",
+            "Open this when you need the evidence checklist.\n",
+            ":::\n"
+        );
+        let directive_guide = parse_workflow_guide(directive).expect("valid external directive");
+        let directive_rendered = render_workflow_skill(
+            directive,
+            &directive_guide,
+            &effective_exposure_by_name(&directive_guide.capabilities),
+        );
+        assert!(
+            directive_rendered
+                .markdown
+                .contains("Open this when you need the evidence checklist.")
+        );
+        assert!(
+            directive_rendered
+                .markdown
+                .contains("[Evidence index](references/evidence-index.md)")
+        );
+        assert!(!directive_rendered.markdown.contains("**External document:"));
+        assert!(!directive_rendered.markdown.contains("Consult `"));
+        assert!(!directive_rendered.markdown.contains(":::external"));
+
+        let standalone = "# Investigate\n\n[Evidence index](references/evidence-index.md)\n";
+        let standalone_guide = parse_workflow_guide(standalone).expect("valid standalone external link");
+        let standalone_rendered = render_workflow_skill(
+            standalone,
+            &standalone_guide,
+            &effective_exposure_by_name(&standalone_guide.capabilities),
+        );
+        assert!(
+            standalone_rendered
+                .markdown
+                .contains("[Evidence index](references/evidence-index.md)")
+        );
+        assert!(!standalone_rendered.markdown.contains("**External document:"));
+        assert!(!standalone_rendered.markdown.contains("Consult `"));
+    }
+
+    #[test]
     fn projects_only_standard_markdown_and_readable_names() {
         let markdown = "# Investigate\n\n:::capability {\"name\":\"search-release-logs\",\"exposure\":\"direct\"}\nUse it to search release logs.\n:::\n";
         let guide = parse_workflow_guide(markdown).expect("valid Guide");
-        let rendered = render_workflow_skill(markdown, &guide);
+        let rendered = render_workflow_skill(markdown, &guide, &effective_exposure_by_name(&guide.capabilities));
 
         assert_eq!(
             rendered.markdown,
-            "# Investigate\n\n**Capability: search-release-logs**  \nExposure: Direct\n\nUse it to search release logs."
+            concat!(
+                "# Investigate\n\n",
+                "The following steps are MCP server capability invocations. ",
+                "Steps marked `(direct)` can be invoked by tool name.\n\n",
+                "`search-release-logs` (direct): Use it to search release logs."
+            )
         );
         assert!(!rendered.markdown.contains(":::capability"));
+        assert!(!rendered.markdown.contains("Exposure:"));
+    }
+
+    #[test]
+    fn normalizes_mixed_occurrence_exposure_to_direct_invocation() {
+        let markdown = concat!(
+            "# Investigate\n\n",
+            ":::capability {\"name\":\"search-release-logs\",\"exposure\":\"meta_on_demand\"}\n",
+            "Inspect first.\n",
+            ":::\n\n",
+            ":::capability {\"name\":\"search-release-logs\",\"exposure\":\"direct\"}\n",
+            "Then capture the screenshot.\n",
+            ":::\n"
+        );
+        let guide = parse_workflow_guide(markdown).expect("valid Guide");
+        let rendered = render_workflow_skill(markdown, &guide, &effective_exposure_by_name(&guide.capabilities));
+
+        assert_eq!(
+            rendered.markdown,
+            concat!(
+                "# Investigate\n\n",
+                "The following steps are MCP server capability invocations. ",
+                "Steps marked `(direct)` can be invoked by tool name.\n\n",
+                "- `search-release-logs` (direct): Inspect first.\n",
+                "- `search-release-logs` (direct): Then capture the screenshot."
+            )
+        );
+        assert!(!rendered.markdown.contains("mcpmate_ucan_details"));
+        assert!(!rendered.markdown.contains("Exposure:"));
+    }
+
+    #[test]
+    fn projects_meta_on_demand_invocation_without_direct_labels() {
+        let markdown = concat!(
+            "# Investigate\n\n",
+            ":::capability {\"name\":\"search-release-logs\",\"exposure\":\"meta_on_demand\"}\n",
+            "Inspect first.\n",
+            ":::\n\n",
+            ":::capability {\"name\":\"search-release-logs\",\"exposure\":\"meta_on_demand\"}\n",
+            "Then summarize.\n",
+            ":::\n"
+        );
+        let guide = parse_workflow_guide(markdown).expect("valid Guide");
+        let rendered = render_workflow_skill(markdown, &guide, &effective_exposure_by_name(&guide.capabilities));
+
+        assert!(rendered.markdown.contains("mcpmate_ucan_details"));
+        assert!(!rendered.markdown.contains("Use `search-release-logs` directly."));
+        assert!(!rendered.markdown.contains("**Capability:"));
+        assert_eq!(
+            rendered.markdown,
+            concat!(
+                "# Investigate\n\n",
+                "The following steps are MCP server capability invocations. ",
+                "Steps marked `(on-demand)` must be inspected with `mcpmate_ucan_details`, ",
+                "then invoked with `mcpmate_ucan_call`.\n\n",
+                "- `search-release-logs` (on-demand): Inspect first.\n",
+                "- `search-release-logs` (on-demand): Then summarize."
+            )
+        );
+    }
+
+    #[test]
+    fn projects_multiple_capabilities_as_a_markdown_list() {
+        let markdown = concat!(
+            "# Investigate\n\n",
+            ":::capability {\"name\":\"open-page\",\"exposure\":\"direct\"}\n",
+            "Open the target URL.\n",
+            ":::\n\n",
+            ":::capability {\"name\":\"capture-shot\",\"exposure\":\"direct\"}\n",
+            "Capture the screenshot.\n",
+            ":::\n"
+        );
+        let guide = parse_workflow_guide(markdown).expect("valid Guide");
+        let rendered = render_workflow_skill(markdown, &guide, &effective_exposure_by_name(&guide.capabilities));
+
+        assert_eq!(
+            rendered.markdown,
+            concat!(
+                "# Investigate\n\n",
+                "The following steps are MCP server capability invocations. ",
+                "Steps marked `(direct)` can be invoked by tool name.\n\n",
+                "- `open-page` (direct): Open the target URL.\n",
+                "- `capture-shot` (direct): Capture the screenshot."
+            )
+        );
     }
 
     #[tokio::test]
@@ -3718,6 +4170,7 @@ mod tests {
             "release-investigation-guide",
             "Release investigation",
             "Investigate: \"production\"\nwith care.",
+            Some("Requires Playwright via MCPMate."),
             "# Release investigation",
         );
 
@@ -3726,12 +4179,20 @@ mod tests {
             .and_then(|value| value.split_once("---\n\n"))
             .map(|(front_matter, _)| front_matter)
             .expect("extract front matter");
+        assert!(
+            front_matter.starts_with("name: release-investigation-guide\n"),
+            "name must precede description in front matter"
+        );
         let metadata: BTreeMap<String, String> = serde_yaml::from_str(front_matter).expect("parse YAML front matter");
 
         assert_eq!(metadata.get("name"), Some(&"release-investigation-guide".to_string()));
         assert_eq!(
             metadata.get("description"),
             Some(&"Investigate: \"production\"\nwith care.".to_string())
+        );
+        assert_eq!(
+            metadata.get("compatibility"),
+            Some(&"Requires Playwright via MCPMate.".to_string())
         );
     }
 }
