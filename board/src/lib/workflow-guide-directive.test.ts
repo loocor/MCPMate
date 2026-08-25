@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  canInsertAtWorkflowGuideBoundary,
   capabilitySource,
   effectiveExposureByName,
   parseWorkflowGuide,
@@ -11,9 +10,9 @@ import {
   commitMarkdownCellSource,
   markdownCellEditAnchor,
   formatMarkdownCellSourceForEditor,
-  canDeleteWorkflowGuideCell,
   markdownCellAfterInsert,
   IN_PLACE_MARKDOWN_SNIPPET,
+  restoreAfterCanceledInsert,
 } from "./workflow-guide-directive";
 
 describe("Workflow Guide directives", () => {
@@ -84,6 +83,21 @@ describe("Workflow Guide directives", () => {
     expect(guide.errors[0]).toContain("Capability exposure");
     expect(guide.errors[1]).toContain("opaque identifiers");
     expect(guide.errors[2]).toContain("skill://");
+  });
+
+  test("does not rewrite placeholders inside capability names", () => {
+    const skill = renderWorkflowSkill(
+      capabilitySource("server://docs/{guide}", "direct", "Then capture."),
+    );
+    expect(skill.errors).toEqual([]);
+    expect(skill.markdown).toContain("`server://docs/{guide}` (direct): Then capture.");
+  });
+
+  test("keeps standalone reference fragments in projected Markdown", () => {
+    const skill = renderWorkflowSkill("# Investigate\n\n[API](references/api.md#auth)\n");
+    expect(skill.errors).toEqual([]);
+    expect(skill.markdown).toContain("[API](references/api.md#auth)");
+    expect(skill.markdown).not.toContain("[API](references/api.md)\n");
   });
 
   test("projects readable neutral Markdown", () => {
@@ -200,14 +214,6 @@ describe("Workflow Guide directives", () => {
     expect(parseWorkflowGuide("Item ends here.## Glued\n").headings).toEqual([]);
   });
 
-  test("locks boundary inserts at or before the document title", () => {
-    expect(canInsertAtWorkflowGuideBoundary([], 0)).toBe(true);
-    expect(canInsertAtWorkflowGuideBoundary([{ offset: 0 }], 0)).toBe(false);
-    expect(canInsertAtWorkflowGuideBoundary([{ offset: 0 }], 12)).toBe(true);
-    expect(canInsertAtWorkflowGuideBoundary([{ offset: 5 }], 4)).toBe(false);
-    expect(canInsertAtWorkflowGuideBoundary([{ offset: 5 }], 5)).toBe(false);
-    expect(canInsertAtWorkflowGuideBoundary([{ offset: 5 }], 6)).toBe(true);
-  });
 
   test("creates a notebook cell for each outline heading", () => {
     const markdown = "# First section\n\nIntro.\n\n## Second section\n\nDetails.\n";
@@ -286,6 +292,24 @@ describe("Workflow Guide directives", () => {
     const cell = markdownCellAfterInsert(markdown, markdown.length, IN_PLACE_MARKDOWN_SNIPPET);
     expect(cell?.source).toBe("## New section\n");
     expect(cell?.kind).toBe("markdown");
+  });
+
+  test("restores the pre-insert document when canceling an in-place insert", () => {
+    const baseline = "# Title\n\nBody.\n";
+    const inserted = `${baseline}## New section\n`;
+    expect(
+      restoreAfterCanceledInsert(inserted, {
+        start: baseline.length,
+        end: inserted.length,
+        restoreMarkdown: baseline,
+      }),
+    ).toBe(baseline);
+    expect(
+      restoreAfterCanceledInsert(inserted, {
+        start: baseline.length,
+        end: inserted.length,
+      }),
+    ).toBe(baseline);
   });
 
   test("ends persisted Markdown on a line boundary", () => {
@@ -369,24 +393,6 @@ describe("Workflow Guide directives", () => {
     ).toEqual({ mode: "append" });
   });
 
-  test("pins the document title cell against deletion", () => {
-    const markdown = "# Title\n\nBody\n";
-    const guide = parseWorkflowGuide(markdown);
-    const cells = splitWorkflowGuideDocument(markdown);
-    const titleCell = cells[0]!;
-    const bodyCell = cells[1];
-    expect(canDeleteWorkflowGuideCell(guide.headings, titleCell)).toBe(false);
-    if (bodyCell) {
-      expect(canDeleteWorkflowGuideCell(guide.headings, bodyCell)).toBe(true);
-    }
-
-    const nested = "# Title\n\n## Section\n\nBody\n";
-    const nestedCells = splitWorkflowGuideDocument(nested);
-    const sectionCell = nestedCells[1]!;
-    expect(
-      canDeleteWorkflowGuideCell(parseWorkflowGuide(nested).headings, sectionCell!),
-    ).toBe(true);
-  });
 
   test("renders capability blocks as separate paragraphs from tight markdown", () => {
     const rendered = renderWorkflowSkill(

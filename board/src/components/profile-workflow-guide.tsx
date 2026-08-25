@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
-  Check,
   ChevronLeft,
   Eye,
   MapPin,
@@ -28,13 +27,12 @@ import remarkGfm from "remark-gfm";
 import { ApiRequestError, configSuitsApi } from "../lib/api";
 import {
   buildLineOffsets,
-  canInsertAtWorkflowGuideBoundary,
-  canDeleteWorkflowGuideCell,
   capabilitySource,
   externalReferenceSource,
   commitMarkdownCellSource,
   formatMarkdownCellSourceForEditor,
   markdownCellAfterInsert,
+  restoreAfterCanceledInsert,
   markdownCellEditAnchor,
   parseWorkflowGuide,
   sanitizeWorkflowGuideMarkdown,
@@ -107,6 +105,14 @@ const GUIDE_INSPECTOR_NAV_NESTED_CLASS =
 
 const GUIDE_NAV_INDENT_STEP_REM = 0.75;
 
+
+function normalizeLoadedGuideMarkdown(markdown: string): string {
+  return sanitizeWorkflowGuideMarkdown(
+    stripLeadingSkillFrontMatter(markdown).body,
+  );
+}
+
+
 /** First outline child sits one step beyond the document row (px-3). */
 function guideNavOutlineIndent(depth: number) {
   return {
@@ -174,7 +180,10 @@ export function ProfileWorkflowGuide({
     queryFn: () => configSuitsApi.getWorkflowGuide(profileId),
   });
   const [markdown, setMarkdown] = useState("");
-  const [rootDirty, setRootDirty] = useState(false);
+  // Content baseline for SKILL.md; root dirty is derived so cancel/restore can clear it.
+  const [rootBaseline, setRootBaseline] = useState("");
+  const rootDirty = markdown !== rootBaseline;
+  rootDirtyRef.current = rootDirty;
   const [packageFiles, setPackageFiles] = useState<WorkflowGuidePackageFile[]>(
     [],
   );
@@ -198,6 +207,8 @@ export function ProfileWorkflowGuide({
     // removes the whole range for freshly inserted in-place cells.
     original: string;
     inserted: boolean;
+    // Full document body before an in-place insert; preferred cancel restore.
+    restoreMarkdown?: string;
   } | null>(null);
   const [pendingLocation, setPendingLocation] = useState<{
     path: string;
@@ -210,6 +221,7 @@ export function ProfileWorkflowGuide({
     capabilities: WorkflowGuideCapability[];
   } | null>(null);
   const editorOffsetRef = useRef(0);
+  const insertEpochRef = useRef(0);
   useEffect(() => {
     if (!guideQuery.data) return;
     setPackageFiles(guideQuery.data.package_files);
@@ -217,17 +229,16 @@ export function ProfileWorkflowGuide({
     const revisionChanged =
       loadedGuideRef.current?.guideRevision !== guideQuery.data.guide_revision;
     if (profileChanged || (revisionChanged && !rootDirtyRef.current)) {
-      const normalizedMarkdown = sanitizeWorkflowGuideMarkdown(
-        stripLeadingSkillFrontMatter(guideQuery.data.markdown).body,
+      const normalizedMarkdown = normalizeLoadedGuideMarkdown(
+        guideQuery.data.markdown,
       );
       setMarkdown(normalizedMarkdown);
+      setRootBaseline(normalizedMarkdown);
       selectionRef.current = {
         start: normalizedMarkdown.length,
         end: normalizedMarkdown.length,
       };
       closeCellEditor();
-      rootDirtyRef.current = false;
-      setRootDirty(false);
     }
     if (profileChanged) {
       setActiveDocumentPath("SKILL.md");
@@ -351,8 +362,6 @@ export function ProfileWorkflowGuide({
       return;
     }
     setMarkdown((current) => apply(current));
-    rootDirtyRef.current = true;
-    setRootDirty(true);
   };
   const strippedRootBody = useMemo(
     () => stripLeadingSkillFrontMatter(markdown).body,
@@ -531,9 +540,11 @@ export function ProfileWorkflowGuide({
           defaultValue: "Workflow Guide saved",
         }),
       );
-      setMarkdown(saved.guide.markdown);
-      rootDirtyRef.current = false;
-      setRootDirty(false);
+      const normalizedMarkdown = normalizeLoadedGuideMarkdown(
+        saved.guide.markdown,
+      );
+      setMarkdown(normalizedMarkdown);
+      setRootBaseline(normalizedMarkdown);
       setPendingReclamation(null);
     },
     onError: (error) => {
@@ -628,15 +639,8 @@ export function ProfileWorkflowGuide({
       return configSuitsApi.uploadWorkflowGuidePackageFile(formData);
     },
     onSuccess: (saved) => {
-      const file = saved.package_file;
       queryClient.setQueryData(["workflowGuide", profileId], saved.guide);
       setPackageFiles(saved.guide.package_files);
-      insert(`[${file.title}](${file.relative_path})`);
-      notifySuccess(
-        t("profiles:detail.workflow.guide.fileSaved", {
-          defaultValue: "Package file saved",
-        }),
-      );
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -774,15 +778,6 @@ export function ProfileWorkflowGuide({
         ...current,
         [document.relative_path]: document.markdown,
       }));
-      insert(externalReferenceSource(document.title, document.relative_path));
-      setActiveDocumentPath(document.relative_path);
-      setEditorMode("notebook");
-      closeCellEditor();
-      notifySuccess(
-        t("profiles:detail.workflow.guide.documentCreated", {
-          defaultValue: "External Markdown document created",
-        }),
-      );
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -877,7 +872,7 @@ export function ProfileWorkflowGuide({
 
   const beginCellEdit = (
     cell: WorkflowGuideDocumentCell,
-    options?: { inserted?: boolean },
+    options?: { inserted?: boolean; restoreMarkdown?: string },
   ) => {
     const offset = cell.startOffset;
     editorOffsetRef.current = offset;
@@ -890,6 +885,7 @@ export function ProfileWorkflowGuide({
         end: cell.endOffset,
         original: cell.source,
         inserted: options?.inserted ?? false,
+        restoreMarkdown: options?.restoreMarkdown,
       });
     } else {
       setEditSession(null);
@@ -904,10 +900,18 @@ export function ProfileWorkflowGuide({
       closeCellEditor();
       return;
     }
-    const { start, end, inserted } = editSession;
+    const { start, end, inserted, restoreMarkdown } = editSession;
     if (inserted) {
+      // Prefer the pre-insert document snapshot so surrounding newlines added
+      // only for the insert composer do not leave a false-dirty residue.
       updateActiveMarkdown(
-        (current) => current.slice(0, start) + current.slice(end),
+        (current) =>
+          restoreAfterCanceledInsert(current, {
+            start,
+            end,
+            restoreMarkdown,
+          }),
+        { normalize: false },
       );
     }
     closeCellEditor();
@@ -933,8 +937,7 @@ export function ProfileWorkflowGuide({
       )}
       onCancel={cancelCellEdit}
       onDelete={
-        editAnchorCell &&
-          canDeleteWorkflowGuideCell(guide.headings, editAnchorCell)
+        editAnchorCell && !editSession.inserted
           ? () => setPendingCellDelete(editAnchorCell)
           : undefined
       }
@@ -944,6 +947,7 @@ export function ProfileWorkflowGuide({
   ) : null;
 
   const insertInPlaceMarkdownAt = (offset: number) => {
+    const restoreMarkdown = notebookMarkdown;
     let nextMarkdown = notebookMarkdown;
     updateActiveMarkdown(
       (current) => {
@@ -961,7 +965,9 @@ export function ProfileWorkflowGuide({
       IN_PLACE_MARKDOWN_SNIPPET,
       activeDocumentPath,
     );
-    if (cell) beginCellEdit(cell, { inserted: true });
+    if (cell) {
+      beginCellEdit(cell, { inserted: true, restoreMarkdown });
+    }
   };
 
   const trackSelection = (
@@ -1585,11 +1591,7 @@ export function ProfileWorkflowGuide({
                                   )}
                                 </div>
                               </article>
-                              {canInsertAtWorkflowGuideBoundary(
-                                guide.headings,
-                                cell.endOffset,
-                              ) ? (
-                                <GuideBoundaryInsert
+                              <GuideBoundaryInsert
                                   capabilities={capabilities}
                                   capabilitiesLoading={capabilitiesLoading}
                                   files={packageFiles}
@@ -1598,27 +1600,59 @@ export function ProfileWorkflowGuide({
                                     !insertComposerOpen && editSession === null
                                   }
                                   onExpandedChange={(nextExpanded) => {
-                                    if (nextExpanded) closeCellEditor();
-                                    setInsertComposerOffset(
-                                      nextExpanded ? cell.endOffset : null,
-                                    );
+                                    if (nextExpanded) {
+                                      closeCellEditor();
+                                      setInsertComposerOffset(cell.endOffset);
+                                      return;
+                                    }
+                                    insertEpochRef.current += 1;
+                                    setInsertComposerOffset(null);
                                   }}
                                   onInsert={insert}
                                   onInsertInPlaceMarkdown={insertInPlaceMarkdownAt}
                                   onInsertCapability={insertCapability}
-                                  onCreateExternalDocument={(title) =>
-                                    createExternalDocumentMutation
-                                      .mutateAsync(title)
-                                      .then(() => undefined)
-                                  }
+                                  onCreateExternalDocument={async (title) => {
+                                    const epoch = insertEpochRef.current;
+                                    const { document } =
+                                      await createExternalDocumentMutation.mutateAsync(
+                                        title,
+                                      );
+                                    if (epoch !== insertEpochRef.current) return;
+                                    insert(
+                                      externalReferenceSource(
+                                        document.title,
+                                        document.relative_path,
+                                      ),
+                                    );
+                                    setActiveDocumentPath(document.relative_path);
+                                    setEditorMode("notebook");
+                                    closeCellEditor();
+                                    notifySuccess(
+                                      t(
+                                        "profiles:detail.workflow.guide.documentCreated",
+                                        {
+                                          defaultValue:
+                                            "External Markdown document created",
+                                        },
+                                      ),
+                                    );
+                                  }}
                                   creatingExternalDocument={
                                     createExternalDocumentMutation.isPending
                                   }
-                                  onCreatePackageFile={(draft) =>
-                                    packageFileMutation
-                                      .mutateAsync(draft)
-                                      .then(() => undefined)
-                                  }
+                                  onCreatePackageFile={async (draft) => {
+                                    const epoch = insertEpochRef.current;
+                                    const saved =
+                                      await packageFileMutation.mutateAsync(draft);
+                                    if (epoch !== insertEpochRef.current) return;
+                                    const file = saved.package_file;
+                                    insert(`[${file.title}](${file.relative_path})`);
+                                    notifySuccess(
+                                      t("profiles:detail.workflow.guide.fileSaved", {
+                                        defaultValue: "Package file saved",
+                                      }),
+                                    );
+                                  }}
                                   creatingPackageFile={packageFileMutation.isPending}
                                   onSetInsertionPoint={(nextOffset) => {
                                     selectionRef.current = {
@@ -1628,7 +1662,6 @@ export function ProfileWorkflowGuide({
                                   }}
                                   offset={cell.endOffset}
                                 />
-                              ) : null}
                             </div>
                           );
                         })}
@@ -1992,8 +2025,8 @@ function GuideCellSaveButton({
   const { t } = useTranslation();
   return (
     <Button
-      aria-label={t("profiles:detail.workflow.guide.doneEdit", {
-        defaultValue: "Done",
+      aria-label={t("common:save", {
+        defaultValue: "Save",
       })}
       className={cn(
         GUIDE_SAVE_BUTTON_CLASS,
@@ -2005,7 +2038,7 @@ function GuideCellSaveButton({
       variant="ghost"
       onClick={onDone}
     >
-      <Check className="h-3.5 w-3.5" />
+      <Save className="h-3.5 w-3.5" />
     </Button>
   );
 }
@@ -2076,6 +2109,7 @@ function GuideMarkdownEditForm({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onCancel]);
   return (
+    <div className="-mx-2">
     <div className={COMPOSER_SHELL_CLASS}>
       <GuideComposerHeader
         actions={
@@ -2101,6 +2135,7 @@ function GuideMarkdownEditForm({
           onSelect={onSelect}
         />
       </div>
+    </div>
     </div>
   );
 }

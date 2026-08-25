@@ -40,7 +40,7 @@ const CAPABILITY_START = /^:::capability\s+(\{.*\})\s*$/;
 const EXTERNAL_START = /^:::external\s+(\{.*\})\s*$/;
 const DIRECTIVE_END = /^:::\s*$/;
 const STANDALONE_EXTERNAL_REFERENCE =
-  /^\s*\[([^\]\n]+)\]\((references\/[^\s)#]+\.md)(?:#[^\s)]+)?\)\s*$/;
+  /^\s*\[([^\]\n]+)\]\((references\/[^\s)#]+\.md)(#[^\s)]+)?\)\s*$/;
 const UUID_REFERENCE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
 /** Mirrors backend/config/projection.json5 for test-only projection rendering. */
@@ -247,9 +247,26 @@ function interpolateProjectionTemplate(
   template: string,
   values: Record<string, string>,
 ): string {
-  let output = template;
-  for (const [key, value] of Object.entries(values)) {
-    output = output.replaceAll(`{${key}}`, value);
+  let output = "";
+  let rest = template;
+  while (rest.length > 0) {
+    const start = rest.indexOf("{");
+    if (start < 0) {
+      output += rest;
+      break;
+    }
+    output += rest.slice(0, start);
+    rest = rest.slice(start + 1);
+    const end = rest.indexOf("}");
+    if (end >= 0) {
+      const key = rest.slice(0, end);
+      if (Object.hasOwn(values, key)) {
+        output += values[key];
+        rest = rest.slice(end + 1);
+        continue;
+      }
+    }
+    output += "{";
   }
   return output;
 }
@@ -374,7 +391,7 @@ export function renderWorkflowSkill(
       output.push(
         renderExternalReference({
           title: standaloneExternal[1],
-          path: standaloneExternal[2],
+          path: `${standaloneExternal[2]}${standaloneExternal[3] ?? ""}`,
           guide: "",
         }),
       );
@@ -399,6 +416,19 @@ export function renderWorkflowSkill(
 }
 
 export const IN_PLACE_MARKDOWN_SNIPPET = "## New section\n";
+
+
+/** Restore document text after canceling a freshly inserted in-place markdown cell. */
+export function restoreAfterCanceledInsert(
+  current: string,
+  session: { start: number; end: number; restoreMarkdown?: string },
+): string {
+  if (session.restoreMarkdown !== undefined) {
+    return session.restoreMarkdown;
+  }
+  return `${current.slice(0, session.start)}${current.slice(session.end)}`;
+}
+
 
 export function markdownCellAfterInsert(
   markdown: string,
@@ -592,18 +622,6 @@ export function markdownCellEditAnchor(
   return index >= 0 ? { mode: "before", index } : { mode: "append" };
 }
 
-/** Blocks deleting the document title cell (first level-1 heading). */
-export function canDeleteWorkflowGuideCell(
-  headings: Array<{ level: number; offset: number }>,
-  cell: WorkflowGuideDocumentCell,
-): boolean {
-  const title = headings[0];
-  if (!title || title.level !== 1 || cell.kind !== "markdown") {
-    return true;
-  }
-  return !(cell.startOffset <= title.offset && title.offset < cell.endOffset);
-}
-
 function splitExternalMarkdownReferences(
   cell: WorkflowGuideDocumentCell,
   sourcePath: string,
@@ -701,15 +719,6 @@ function countLeadingDelimiter(value: string, delimiter: "`" | "~"): number {
   let length = 0;
   while (value[length] === delimiter) length += 1;
   return length;
-}
-
-/** Boundary inserts at or before the first heading would un-pin the document title. */
-export function canInsertAtWorkflowGuideBoundary(
-  headings: Array<{ offset: number }>,
-  offset: number,
-): boolean {
-  const titleOffset = headings[0]?.offset;
-  return titleOffset === undefined || offset > titleOffset;
 }
 
 export function externalReferenceSource(

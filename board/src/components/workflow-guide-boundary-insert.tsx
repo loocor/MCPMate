@@ -302,7 +302,7 @@ export function GuideBoundaryInsert({
                 type="button"
                 variant="ghost"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Save className="h-3.5 w-3.5" />
               </Button>
             ) : activeInsert === "external_markdown" ? (
               <Button
@@ -392,6 +392,7 @@ export function GuideBoundaryInsert({
               onPackageTitleChange={setPackageTitle}
               onPackageUploadChange={setPackageUpload}
               packageCategory={packageCategory}
+              packageFile={packageUpload}
               packageTitle={packageTitle}
             />
           ) : null}
@@ -818,6 +819,7 @@ function PackageInsertFields({
   composerId,
   files,
   packageCategory,
+  packageFile,
   packageTitle,
   onInsertExisting,
   onPackageTitleChange,
@@ -826,6 +828,7 @@ function PackageInsertFields({
   composerId: string;
   files: WorkflowGuidePackageFile[];
   packageCategory: WorkflowGuidePackageCategory;
+  packageFile: File | null;
   packageTitle: string;
   onInsertExisting: (file: WorkflowGuidePackageFile) => void;
   onPackageTitleChange: (value: string) => void;
@@ -834,29 +837,56 @@ function PackageInsertFields({
   const { t } = useTranslation(["profiles"]);
   const titleId = `${composerId}-package-title`;
   const uploadId = `${composerId}-package-upload`;
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const acceptedTypes = acceptedExtensionList(packageCategory);
+  const emptyStatus = t("profiles:detail.workflow.guide.noFileSelected", {
+    defaultValue: "No file selected",
+  });
+  const status = packageFile ? packageFile.name : `${emptyStatus}  ${acceptedTypes}`;
   const hasExistingFiles = files.length > 0;
   return (
     <>
       <div className={hasExistingFiles ? "grid min-w-0 grid-cols-[2fr_1fr] gap-2" : undefined}>
-        <Input
-          aria-label={t("profiles:detail.workflow.guide.packageFileUpload", {
-            defaultValue: "Package file upload",
-          })}
-          accept={acceptedExtensions(packageCategory)}
+        <div
           className={cn(
             GUIDE_FIELD_CLASS,
-            "py-0 file:mr-3 file:h-full file:border-0 file:bg-transparent file:p-0 file:font-normal file:text-xs",
+            "flex min-w-0 items-center gap-2 overflow-hidden rounded-md border border-input p-2",
           )}
-          id={uploadId}
-          type="file"
-          onChange={(event) => {
-            const file = event.target.files?.[0] ?? null;
-            onPackageUploadChange(file);
-            if (file && !packageTitle.trim()) {
-              onPackageTitleChange(titleFromFileName(file.name));
-            }
-          }}
-        />
+        >
+          <input
+            ref={uploadInputRef}
+            accept={acceptedExtensions(packageCategory)}
+            aria-hidden={true}
+            className="sr-only"
+            id={uploadId}
+            tabIndex={-1}
+            type="file"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              onPackageUploadChange(file);
+              if (file && !packageTitle.trim()) {
+                onPackageTitleChange(titleFromFileName(file.name));
+              }
+            }}
+          />
+          <Button
+            aria-label={`${t("profiles:detail.workflow.guide.chooseFile", {
+              defaultValue: "Choose file",
+            })}. ${status}`}
+            className="h-auto shrink-0 p-0 text-xs font-normal hover:bg-transparent hover:text-foreground"
+            onClick={() => uploadInputRef.current?.click()}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            {t("profiles:detail.workflow.guide.chooseFile", {
+              defaultValue: "Choose file",
+            })}
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={status}>
+            {status}
+          </span>
+        </div>
         {hasExistingFiles ? (
           <CapabilityCombobox
             emptyLabel={t("profiles:detail.workflow.guide.noMatchingPackageFiles", {
@@ -953,8 +983,12 @@ function titleFromFileName(name: string) {
 
 function acceptedExtensions(category: WorkflowGuidePackageCategory) {
   if (category === "reference") return ".json,.yaml,.yml,.toml";
-  if (category === "script") return ".js,.mjs,.cjs,.py";
-  return ".pdf,.docx,.xlsx";
+  if (category === "script") return ".js,.mjs,.cjs,.py,.sh,.bat";
+  return ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,.svg,.gif,.ico,.csv,.sql";
+}
+
+function acceptedExtensionList(category: WorkflowGuidePackageCategory) {
+  return acceptedExtensions(category).split(",").join(", ");
 }
 
 function packageCategoryForInsert(

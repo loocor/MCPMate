@@ -262,6 +262,7 @@ export function ProfileDetailPage() {
 	const reviewRefId = searchParams.get("ref_id");
 	const hasExplicitTab = searchParams.has("tab");
 	const [workflowGuideDirty, setWorkflowGuideDirty] = useState(false);
+	const [workflowGuideResetKey, setWorkflowGuideResetKey] = useState(0);
 	const [pendingWorkflowTab, setPendingWorkflowTab] = useState<string | null>(
 		null,
 	);
@@ -2079,6 +2080,7 @@ export function ProfileDetailPage() {
 							<Card className={CAPABILITY_SCROLL_CARD_CLASS}>
 								<CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
 									<ProfileWorkflowGuide
+										key={workflowGuideResetKey}
 										profileId={profileId}
 										capabilities={workflowCapabilities}
 										capabilitiesLoading={
@@ -2696,6 +2698,7 @@ export function ProfileDetailPage() {
 								const tab = pendingWorkflowTab;
 								setPendingWorkflowTab(null);
 								setWorkflowGuideDirty(false);
+								setWorkflowGuideResetKey((key) => key + 1);
 								if (tab) applyDetailTabChange(tab);
 							}}
 						>
