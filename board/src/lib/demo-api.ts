@@ -14,6 +14,31 @@ import type {
 const now = Date.now();
 const timestamp = new Date(now).toISOString();
 
+function demoCapabilitySnapshot(
+	tools: number,
+	prompts: number,
+	resources: number,
+	resourceTemplates: number,
+) {
+	const kind = (count: number, supported: boolean) => ({
+		declaration: (supported ? "supported" : "unsupported") as
+			| "supported"
+			| "unsupported",
+		inventory: "complete" as const,
+		currentCount: count,
+		currentAvailable: count > 0,
+	});
+	return {
+		snapshotState: "ready" as const,
+		revision: 1,
+		observedAt: timestamp,
+		tools: kind(tools, true),
+		prompts: kind(prompts, prompts > 0),
+		resources: kind(resources, resources > 0),
+		resourceTemplates: kind(resourceTemplates, resourceTemplates > 0),
+	};
+}
+
 const demoProfiles = [
 	{
 		id: "demo-profile-research",
@@ -64,15 +89,7 @@ const demoServers: ServerDetail[] = [
 		enabled_in_suits: true,
 		source: { type: "registry", ref: "io.github.github-mcp-server" },
 		instance_count: 1,
-		capability: {
-			supports_tools: true,
-			supports_prompts: false,
-			supports_resources: true,
-			tools_count: 18,
-			prompts_count: 0,
-			resources_count: 4,
-			resource_templates_count: 2,
-		},
+		capability: demoCapabilitySnapshot(18, 0, 4, 2),
 		meta: {
 			description: "Repository issues, pull requests, and code review context.",
 			version: "0.6.2",
@@ -90,15 +107,7 @@ const demoServers: ServerDetail[] = [
 		source: { type: "registry", ref: "io.context7.mcp" },
 		instance_count: 1,
 		instances: [{ id: "context7-main", name: "context7", status: "connected" }],
-		capability: {
-			supports_tools: true,
-			supports_prompts: false,
-			supports_resources: true,
-			tools_count: 7,
-			prompts_count: 0,
-			resources_count: 12,
-			resource_templates_count: 3,
-		},
+		capability: demoCapabilitySnapshot(7, 0, 12, 3),
 		meta: {
 			description: "Versioned library documentation lookup for coding workflows.",
 			version: "1.0.0",
@@ -117,15 +126,7 @@ const demoServers: ServerDetail[] = [
 		instances: [
 			{ id: "filesystem-workspace-main", name: "filesystem-workspace", status: "connected" },
 		],
-		capability: {
-			supports_tools: true,
-			supports_prompts: false,
-			supports_resources: true,
-			tools_count: 9,
-			prompts_count: 0,
-			resources_count: 6,
-			resource_templates_count: 0,
-		},
+		capability: demoCapabilitySnapshot(9, 0, 6, 0),
 		meta: {
 			description: "Workspace-scoped file access with explicit local boundaries.",
 			version: "0.4.1",
@@ -358,6 +359,67 @@ function demoSecretStoreStatus(): SecretStoreStatusData {
 	};
 }
 
+
+function demoProfileRow(id: string | null) {
+	const profile =
+		demoProfiles.find((item) => item.id === id) ?? demoProfiles[0];
+	return {
+		...profile,
+		authoring_generation: 1,
+	};
+}
+
+function demoEmptyProfileCapabilities(
+	id: string | null,
+	key: "tools" | "resources" | "prompts" | "templates",
+) {
+	const profile = demoProfileRow(id);
+	return {
+		profile_id: profile.id,
+		profile_name: profile.name,
+		[key]: [],
+		source_revision_set: {},
+		authoring_generation: 1,
+	};
+}
+
+function demoClientConfig(identifier: string | null) {
+	const client =
+		demoClients.find((item) => item.identifier === identifier) ??
+		demoClients[0];
+	return {
+		config_exists: client.config_exists,
+		config_path: client.config_path,
+		config_mode: "unify",
+		config_type: client.template.format,
+		content: {},
+		has_mcp_config: client.has_mcp_config,
+		configured_server_entries: demoServers.map((server) => ({
+			name: server.name,
+			transport: server.server_type ?? "stdio",
+			args: [],
+			env: {},
+			headers: {},
+			managed_by_mcpmate: true,
+		})),
+		mcp_servers_count: client.mcp_servers_count,
+		approval_status: client.approval_status,
+		attachment_state: client.attachment_state,
+		writable_config: client.writable_config,
+		governed_by_default_policy: client.governed_by_default_policy,
+		config_file_state: "with_config_file" as const,
+		template_merge_strategy: "deep_merge" as const,
+		effective_merge_strategy: "deep_merge" as const,
+		merge_strategy_source: "template" as const,
+		supported_merge_strategies: ["deep_merge", "replace"] as const,
+		template: client.template,
+		description: client.description,
+		homepage_url: client.homepage_url ?? null,
+		capability_source: "profiles" as const,
+		selected_profile_ids: ["demo-profile-research"],
+	};
+}
+
 function demoPasswordStatus(): PasswordStatusData {
 	return {
 		enabled: true,
@@ -539,6 +601,68 @@ export async function handleDemoApiRequest<T>(
 	if (method === "POST" && path === "/api/secrets/passphrase/rotate") {
 		return wrapped(demoSecretStoreStatus()) as T;
 	}
+	if (method === "GET" && path === "/api/client/surface/reviews") {
+		return wrapped({ items: [] }) as T;
+	}
+	if (method === "GET" && path === "/api/client/surface/reviews/summary") {
+		return wrapped({
+			pending_count: 0,
+			failed_reconciliation_count: 0,
+			entries: [],
+		}) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/details") {
+		const id = url.searchParams.get("id");
+		return wrapped({ profile: demoProfileRow(id) }) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/servers/list") {
+		const id = url.searchParams.get("profile_id");
+		const profile = demoProfileRow(id);
+		return wrapped({
+			profile_id: profile.id,
+			profile_name: profile.name,
+			servers: demoServers.map((server) => ({
+				id: server.id,
+				name: server.name,
+				enabled: true,
+				allowed_operations: [...profile.allowed_operations],
+			})),
+			authoring_generation: 1,
+		}) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/tools/list") {
+		return wrapped(
+			demoEmptyProfileCapabilities(url.searchParams.get("profile_id"), "tools"),
+		) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/resources/list") {
+		return wrapped(
+			demoEmptyProfileCapabilities(
+				url.searchParams.get("profile_id"),
+				"resources",
+			),
+		) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/prompts/list") {
+		return wrapped(
+			demoEmptyProfileCapabilities(
+				url.searchParams.get("profile_id"),
+				"prompts",
+			),
+		) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/profile/resource-templates/list") {
+		return wrapped(
+			demoEmptyProfileCapabilities(
+				url.searchParams.get("profile_id"),
+				"templates",
+			),
+		) as T;
+	}
+	if (method === "GET" && path === "/api/client/config/details") {
+		return wrapped(demoClientConfig(url.searchParams.get("identifier"))) as T;
+	}
+
 	if (method === "GET" && path === "/api/mcp/servers/details") {
 		const id = url.searchParams.get("id");
 		const server =
