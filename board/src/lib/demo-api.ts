@@ -362,7 +362,7 @@ function demoPasswordStatus(): PasswordStatusData {
 	return {
 		enabled: true,
 		scope: ["startup", "settings"],
-		has_password: true,
+		has_password: false,
 	};
 }
 
@@ -538,6 +538,20 @@ export async function handleDemoApiRequest<T>(
 	}
 	if (method === "POST" && path === "/api/secrets/passphrase/rotate") {
 		return wrapped(demoSecretStoreStatus()) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/servers/details") {
+		const id = url.searchParams.get("id");
+		const server =
+			demoServers.find((item) => item.id === id) ?? demoServers[0] ?? null;
+		return wrapped(server) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/servers/oauth/status") {
+		const id = url.searchParams.get("id") ?? demoServers[0]?.id ?? "demo";
+		return wrapped({
+			server_id: id,
+			configured: false,
+			state: "not_configured",
+		}) as T;
 	}
 	if (method === "GET" && path === "/api/mcp/profile/capability-token-ledger") {
 		const profileId = url.searchParams.get("profile_id") ?? "demo-profile-research";
