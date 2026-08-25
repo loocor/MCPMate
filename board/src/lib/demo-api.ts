@@ -11,6 +11,14 @@ import type {
 	SystemStatus,
 } from "./types";
 
+import {
+	demoCapabilitiesFor,
+	demoCapabilityCatalog,
+	demoCapabilityCounts,
+	demoListResult,
+	type DemoCapabilityKind,
+} from "./demo-capability-catalog";
+
 const now = Date.now();
 const timestamp = new Date(now).toISOString();
 
@@ -38,6 +46,17 @@ function demoCapabilitySnapshot(
 		resourceTemplates: kind(resourceTemplates, resourceTemplates > 0),
 	};
 }
+
+function demoSnapshotFor(serverId: string) {
+	const counts = demoCapabilityCounts(serverId);
+	return demoCapabilitySnapshot(
+		counts.tools,
+		counts.prompts,
+		counts.resources,
+		counts.templates,
+	);
+}
+
 
 const demoProfiles = [
 	{
@@ -80,21 +99,65 @@ const demoProfiles = [
 
 const demoServers: ServerDetail[] = [
 	{
-		id: "github-mcp",
-		name: "github-mcp",
+		id: "everything",
+		name: "everything",
 		server_type: "stdio",
 		status: "connected",
 		enabled: true,
 		globally_enabled: true,
 		enabled_in_suits: true,
-		source: { type: "registry", ref: "io.github.github-mcp-server" },
+		source: { type: "registry", ref: "io.github.modelcontextprotocol/everything" },
 		instance_count: 1,
-		capability: demoCapabilitySnapshot(18, 0, 4, 2),
+		capability: demoSnapshotFor("everything"),
 		meta: {
-			description: "Repository issues, pull requests, and code review context.",
-			version: "0.6.2",
+			description: "MCP reference server covering tools, resources, prompts, and templates.",
+			version: "1.0.0",
 		},
-		instances: [{ id: "github-mcp-main", name: "github-mcp", status: "connected" }],
+		server_info: {
+			name: "everything-server",
+			title: "Everything Reference Server",
+			version: "1.0.0",
+		},
+		instances: [{ id: "everything-main", name: "everything", status: "connected" }],
+	},
+	{
+		id: "playwright",
+		name: "playwright",
+		server_type: "stdio",
+		status: "connected",
+		enabled: true,
+		globally_enabled: true,
+		enabled_in_suits: true,
+		source: { type: "registry", ref: "io.github.microsoft/playwright-mcp" },
+		instance_count: 1,
+		capability: demoSnapshotFor("playwright"),
+		meta: {
+			description: "Browser automation tools for navigating, clicking, and capturing pages.",
+			version: "0.0.32",
+		},
+		instances: [{ id: "playwright-main", name: "playwright", status: "connected" }],
+	},
+	{
+		id: "sequential_thinking",
+		name: "sequential-thinking-server",
+		server_type: "stdio",
+		status: "connected",
+		enabled: true,
+		globally_enabled: true,
+		enabled_in_suits: true,
+		source: { type: "registry", ref: "io.github.modelcontextprotocol/sequentialthinking" },
+		instance_count: 1,
+		capability: demoSnapshotFor("sequential_thinking"),
+		meta: {
+			description: "Single-tool reasoning server for step-by-step problem breakdown.",
+			version: "0.2.0",
+		},
+		server_info: {
+			name: "sequential-thinking-server",
+			title: "Sequential Thinking",
+			version: "0.2.0",
+		},
+		instances: [{ id: "sequential-thinking-main", name: "sequential-thinking-server", status: "connected" }],
 	},
 	{
 		id: "context7",
@@ -106,33 +169,15 @@ const demoServers: ServerDetail[] = [
 		enabled_in_suits: true,
 		source: { type: "registry", ref: "io.context7.mcp" },
 		instance_count: 1,
-		instances: [{ id: "context7-main", name: "context7", status: "connected" }],
-		capability: demoCapabilitySnapshot(7, 0, 12, 3),
+		capability: demoSnapshotFor("context7"),
 		meta: {
 			description: "Versioned library documentation lookup for coding workflows.",
 			version: "1.0.0",
 		},
-	},
-	{
-		id: "filesystem-workspace",
-		name: "filesystem-workspace",
-		server_type: "stdio",
-		status: "connected",
-		enabled: true,
-		globally_enabled: true,
-		enabled_in_suits: true,
-		source: { type: "local" },
-		instance_count: 1,
-		instances: [
-			{ id: "filesystem-workspace-main", name: "filesystem-workspace", status: "connected" },
-		],
-		capability: demoCapabilitySnapshot(9, 0, 6, 0),
-		meta: {
-			description: "Workspace-scoped file access with explicit local boundaries.",
-			version: "0.4.1",
-		},
+		instances: [{ id: "context7-main", name: "context7", status: "connected" }],
 	},
 ];
+
 
 const demoClients: ClientInfo[] = [
 	{
@@ -144,7 +189,7 @@ const demoClients: ClientInfo[] = [
 		config_path: "/Users/demo/Library/Application Support/Claude/claude_desktop_config.json",
 		config_exists: true,
 		has_mcp_config: true,
-		mcp_servers_count: 3,
+		mcp_servers_count: 4,
 		approval_status: "approved",
 		attachment_state: "attached",
 		writable_config: true,
@@ -169,7 +214,7 @@ const demoClients: ClientInfo[] = [
 		config_path: "/Users/demo/.codex/config.toml",
 		config_exists: true,
 		has_mcp_config: true,
-		mcp_servers_count: 3,
+		mcp_servers_count: 4,
 		approval_status: "approved",
 		attachment_state: "attached",
 		writable_config: true,
@@ -192,7 +237,7 @@ const demoClients: ClientInfo[] = [
 		config_path: "/Users/demo/.cursor/mcp.json",
 		config_exists: true,
 		has_mcp_config: true,
-		mcp_servers_count: 2,
+		mcp_servers_count: 4,
 		approval_status: "approved",
 		attachment_state: "attached",
 		writable_config: true,
@@ -210,27 +255,7 @@ const demoClients: ClientInfo[] = [
 	},
 ];
 
-const demoSecrets: SecretMetadata[] = [
-	{
-		alias: "github-token",
-		placeholder: "[[secret:github-token]]",
-		kind: "api_key",
-		label: "GitHub token",
-		origin: {
-			server_id: "github-mcp",
-			server_name: "github-mcp",
-			field_group: "env",
-			field_key: "GITHUB_PERSONAL_ACCESS_TOKEN",
-		},
-		provider_id: "demo-os-keychain",
-		provider_kind: "operating_system",
-		version: 2,
-		used_by_count: 1,
-		historical_usage_count: 0,
-		created_at: new Date(now - 86_400_000).toISOString(),
-		updated_at: new Date(now - 3_600_000).toISOString(),
-	},
-];
+const demoSecrets: SecretMetadata[] = [];
 
 const demoAuditEvents: AuditEventRecord[] = [
 	{
@@ -265,9 +290,9 @@ const demoAuditEvents: AuditEventRecord[] = [
 		action: "server_import",
 		status: "success",
 		occurred_at_ms: now - 240_000,
-		server_id: "github-mcp",
-		server_name: "github-mcp",
-		target: "github-mcp",
+		server_id: "everything",
+		server_name: "everything",
+		target: "everything",
 		detail: "Registry server reviewed and imported into local demo state.",
 		duration_ms: 118,
 	},
@@ -369,16 +394,53 @@ function demoProfileRow(id: string | null) {
 	};
 }
 
-function demoEmptyProfileCapabilities(
+function demoProfileCapabilityFields(
+	item: Record<string, unknown>,
+	key: DemoCapabilityKind,
+) {
+	if (key === "tools") {
+		return { tool_name: item.tool_name, unique_name: item.unique_name };
+	}
+	if (key === "resources") {
+		return { resource_uri: item.resource_uri, unique_uri: item.unique_uri };
+	}
+	if (key === "prompts") {
+		return {
+			prompt_name: item.prompt_name ?? item.name,
+			unique_name: item.unique_name,
+		};
+	}
+	return {
+		uri_template: item.uri_template,
+		unique_uri_template: item.unique_uri_template,
+	};
+}
+
+function demoProfileCapabilities(
 	id: string | null,
-	key: "tools" | "resources" | "prompts" | "templates",
+	key: DemoCapabilityKind,
 ) {
 	const profile = demoProfileRow(id);
+	const catalogItems = Object.values(demoCapabilityCatalog).flatMap((entry) =>
+		entry[key].map((item) => ({
+			ref_id: item.ref_id,
+			server_id: item.server_id,
+			server_name: item.server_name,
+			description: item.description,
+			enabled: true,
+			state: "enabled",
+			state_generation: 1,
+			allowed_operations: [...profile.allowed_operations],
+			...demoProfileCapabilityFields(item, key),
+		})),
+	);
 	return {
 		profile_id: profile.id,
 		profile_name: profile.name,
-		[key]: [],
-		source_revision_set: {},
+		[key]: catalogItems,
+		source_revision_set: Object.fromEntries(
+			Object.keys(demoCapabilityCatalog).map((serverId) => [serverId, 1]),
+		),
 		authoring_generation: 1,
 	};
 }
@@ -428,22 +490,8 @@ function demoPasswordStatus(): PasswordStatusData {
 	};
 }
 
-function demoSecretUsages(alias: string): SecretUsage[] {
-	if (alias !== "github-token") {
-		return [];
-	}
-
-	return [
-		{
-			alias,
-			server_id: "github-mcp",
-			location: {
-				group: "env",
-				key: "GITHUB_PERSONAL_ACCESS_TOKEN",
-			},
-			status: "active",
-		},
-	];
+function demoSecretUsages(_alias: string): SecretUsage[] {
+	return [];
 }
 
 export async function handleDemoApiRequest<T>(
@@ -552,26 +600,48 @@ export async function handleDemoApiRequest<T>(
 		return wrapped({
 			candidates: [
 				{
-					key: "demo-local:github-mcp",
-					name: "github-mcp",
+					key: "demo-local:everything",
+					name: "everything",
 					kind: "stdio",
 					command: "npx",
-					args: ["-y", "@modelcontextprotocol/server-github"],
-					env: { GITHUB_PERSONAL_ACCESS_TOKEN: "[[secret:github-token]]" },
+					args: ["-y", "@modelcontextprotocol/server-everything"],
+					env: {},
 					url: null,
 					source_clients: ["Claude Desktop"],
 					source_client_ids: ["claude_desktop"],
 				},
 				{
-					key: "demo-local:filesystem-workspace",
-					name: "filesystem-workspace",
+					key: "demo-local:playwright",
+					name: "playwright",
 					kind: "stdio",
 					command: "npx",
-					args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/demo/Projects"],
+					args: ["-y", "@playwright/mcp"],
+					env: {},
+					url: null,
+					source_clients: ["Cursor"],
+					source_client_ids: ["cursor"],
+				},
+				{
+					key: "demo-local:sequential_thinking",
+					name: "sequential-thinking-server",
+					kind: "stdio",
+					command: "npx",
+					args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
 					env: {},
 					url: null,
 					source_clients: ["Codex"],
 					source_client_ids: ["codex"],
+				},
+				{
+					key: "demo-local:context7",
+					name: "context7",
+					kind: "stdio",
+					command: "npx",
+					args: ["-y", "@upstash/context7-mcp"],
+					env: {},
+					url: null,
+					source_clients: ["Claude Desktop"],
+					source_client_ids: ["claude_desktop"],
 				},
 			],
 			errors: [],
@@ -584,7 +654,7 @@ export async function handleDemoApiRequest<T>(
 		return wrapped({ secrets: demoSecrets }) as T;
 	}
 	if (method === "GET" && path === "/api/secrets/usages") {
-		const alias = url.searchParams.get("alias") ?? "github-token";
+		const alias = url.searchParams.get("alias") ?? "";
 		return wrapped({
 			usages: demoSecretUsages(alias),
 		}) as T;
@@ -632,12 +702,12 @@ export async function handleDemoApiRequest<T>(
 	}
 	if (method === "GET" && path === "/api/mcp/profile/tools/list") {
 		return wrapped(
-			demoEmptyProfileCapabilities(url.searchParams.get("profile_id"), "tools"),
+			demoProfileCapabilities(url.searchParams.get("profile_id"), "tools"),
 		) as T;
 	}
 	if (method === "GET" && path === "/api/mcp/profile/resources/list") {
 		return wrapped(
-			demoEmptyProfileCapabilities(
+			demoProfileCapabilities(
 				url.searchParams.get("profile_id"),
 				"resources",
 			),
@@ -645,7 +715,7 @@ export async function handleDemoApiRequest<T>(
 	}
 	if (method === "GET" && path === "/api/mcp/profile/prompts/list") {
 		return wrapped(
-			demoEmptyProfileCapabilities(
+			demoProfileCapabilities(
 				url.searchParams.get("profile_id"),
 				"prompts",
 			),
@@ -653,7 +723,7 @@ export async function handleDemoApiRequest<T>(
 	}
 	if (method === "GET" && path === "/api/mcp/profile/resource-templates/list") {
 		return wrapped(
-			demoEmptyProfileCapabilities(
+			demoProfileCapabilities(
 				url.searchParams.get("profile_id"),
 				"templates",
 			),
@@ -661,6 +731,55 @@ export async function handleDemoApiRequest<T>(
 	}
 	if (method === "GET" && path === "/api/client/config/details") {
 		return wrapped(demoClientConfig(url.searchParams.get("identifier"))) as T;
+	}
+
+	if (method === "GET" && path === "/api/mcp/servers/capabilities/lists") {
+		const lists = demoCapabilitiesFor(url.searchParams.get("id"));
+		return wrapped({
+			tools: demoListResult(lists.tools),
+			resources: demoListResult(lists.resources),
+			prompts: demoListResult(lists.prompts),
+			resource_templates: demoListResult(lists.templates),
+		}) as T;
+	}
+	if (method === "GET" && path === "/api/mcp/servers/capability/detail") {
+		const lists = demoCapabilitiesFor(url.searchParams.get("id"));
+		const kind = url.searchParams.get("kind");
+		const key = url.searchParams.get("key");
+		const items =
+			kind === "resources" || kind === "prompts" || kind === "templates"
+				? lists[kind]
+				: lists.tools;
+		const item =
+			items.find((entry) =>
+				[
+					entry.unique_name,
+					entry.unique_uri,
+					entry.unique_uri_template,
+					entry.ref_id,
+				].includes(key),
+			) ?? null;
+		return wrapped({
+			item,
+			state: item ? "ready" : "empty_data",
+		}) as T;
+	}
+	if (method === "POST" && path === "/api/mcp/servers/capabilities/refresh") {
+		let serverId = "everything";
+		try {
+			const raw = typeof options?.body === "string" ? options.body : "";
+			if (raw) {
+				const parsed = JSON.parse(raw) as { id?: string };
+				if (parsed.id) serverId = parsed.id;
+			}
+		} catch {
+			/* keep default */
+		}
+		return wrapped({
+			server_id: serverId,
+			catalog_revision: 1,
+			catalog_changed: false,
+		}) as T;
 	}
 
 	if (method === "GET" && path === "/api/mcp/servers/details") {
@@ -684,10 +803,28 @@ export async function handleDemoApiRequest<T>(
 				{
 					profile_row_id: profileId,
 					kind: "tools",
-					server_id: "github-mcp",
+					server_id: "everything",
 					server_enabled_in_profile: true,
 					payload_json: JSON.stringify({
-						tools: ["issues.search", "pulls.review", "repos.read"],
+						tools: ["echo", "add", "printEnv"],
+					}),
+				},
+				{
+					profile_row_id: profileId,
+					kind: "tools",
+					server_id: "playwright",
+					server_enabled_in_profile: true,
+					payload_json: JSON.stringify({
+						tools: ["browser_navigate", "browser_snapshot", "browser_click"],
+					}),
+				},
+				{
+					profile_row_id: profileId,
+					kind: "tools",
+					server_id: "sequential_thinking",
+					server_enabled_in_profile: true,
+					payload_json: JSON.stringify({
+						tools: ["sequentialthinking"],
 					}),
 				},
 				{
@@ -696,7 +833,7 @@ export async function handleDemoApiRequest<T>(
 					server_id: "context7",
 					server_enabled_in_profile: true,
 					payload_json: JSON.stringify({
-						tools: ["docs.resolve-library", "docs.get"],
+						tools: ["resolve-library-id", "get-library-docs"],
 					}),
 				},
 			],
