@@ -2,7 +2,7 @@
 // Only fallback to index.html for selected client routes to avoid masking real 404s.
 
 const SPA_PREFIXES = ["/docs/"] as const;
-const SPA_PATHS = new Set(["/privacy", "/terms"]);
+const SPA_PATHS = new Set(["/privacy", "/terms", "/concepts"]);
 const INDEX_PATH = "/index.html";
 
 function acceptsHtml(request: Request) {
