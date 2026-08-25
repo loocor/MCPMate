@@ -1,3 +1,8 @@
+#![expect(
+    clippy::result_large_err,
+    reason = "CapabilityReadError carries structured upstream diagnostics for API mapping."
+)]
+
 use std::{
     collections::HashMap,
     sync::{
@@ -50,7 +55,7 @@ pub(crate) enum CapabilityReadError {
         operation: &'static str,
         kind: CapabilityType,
         catalog_error: Option<CatalogError>,
-        existing: Option<DiscoveryAttemptFailure>,
+        existing: Option<Box<DiscoveryAttemptFailure>>,
         fresh: Option<Box<DiscoveryAttemptFailure>>,
     },
     #[error(
@@ -64,7 +69,7 @@ pub(crate) enum CapabilityReadError {
         connection_generation: Option<u64>,
         owner_source: OwnerSource,
         #[source]
-        error: CapabilityOwnerError,
+        error: Box<CapabilityOwnerError>,
     },
     #[error(
         "capability projection failed for server '{server_name}' ({server_id}) during {operation}, instance '{instance_id}': {source}"
@@ -84,23 +89,21 @@ pub(crate) enum CapabilityReadError {
 
 impl CapabilityReadError {
     fn discovery_attempt_ms(
-        existing: &Option<DiscoveryAttemptFailure>,
+        existing: &Option<Box<DiscoveryAttemptFailure>>,
         fresh: &Option<Box<DiscoveryAttemptFailure>>,
         extractor: impl Fn(&DiscoveryAttemptFailure) -> Option<u128>,
     ) -> Option<u128> {
         fresh
             .as_deref()
             .and_then(&extractor)
-            .or_else(|| existing.as_ref().and_then(extractor))
+            .or_else(|| existing.as_deref().and_then(&extractor))
     }
 
     pub(crate) fn connection_timeout_ms(&self) -> Option<u128> {
-        if let Self::CleanupFailed {
-            error: CapabilityOwnerError::Timeout { timeout_ms },
-            ..
-        } = self
-        {
-            return Some(*timeout_ms);
+        if let Self::CleanupFailed { error, .. } = self {
+            if let CapabilityOwnerError::Timeout { timeout_ms } = error.as_ref() {
+                return Some(*timeout_ms);
+            }
         }
         let Self::DiscoveryFailed { existing, fresh, .. } = self else {
             return None;
@@ -118,12 +121,10 @@ impl CapabilityReadError {
     /// Surfaces an upstream authentication failure reason, when the discovery attempt or
     /// owner cleanup failed because the upstream server rejected our credentials.
     pub(crate) fn authentication_failure(&self) -> Option<(CapabilityAuthenticationFailureCode, &str)> {
-        if let Self::CleanupFailed {
-            error: CapabilityOwnerError::Authentication { code, reason },
-            ..
-        } = self
-        {
-            return Some((*code, reason.as_str()));
+        if let Self::CleanupFailed { error, .. } = self {
+            if let CapabilityOwnerError::Authentication { code, reason } = error.as_ref() {
+                return Some((*code, reason.as_str()));
+            }
         }
         let Self::DiscoveryFailed { existing, fresh, .. } = self else {
             return None;
@@ -133,7 +134,7 @@ impl CapabilityReadError {
             .and_then(DiscoveryAttemptFailure::authentication_failure)
             .or_else(|| {
                 existing
-                    .as_ref()
+                    .as_deref()
                     .and_then(DiscoveryAttemptFailure::authentication_failure)
             })
     }
@@ -145,7 +146,7 @@ impl CapabilityReadError {
 
 enum OwnerReadError {
     Attempt {
-        failure: DiscoveryAttemptFailure,
+        failure: Box<DiscoveryAttemptFailure>,
         disposition: DiscoveryRetryDisposition,
     },
     Cleanup(Box<CapabilityReadError>),
@@ -646,7 +647,7 @@ impl From<&CapabilityReadError> for SharedCapabilityReadError {
                 operation,
                 kind: *kind,
                 catalog_error: catalog_error.as_ref().map(SharedCatalogError::from),
-                existing: existing.as_ref().map(SharedDiscoveryAttemptFailure::from),
+                existing: existing.as_deref().map(SharedDiscoveryAttemptFailure::from),
                 fresh: fresh.as_deref().map(SharedDiscoveryAttemptFailure::from).map(Box::new),
             },
             CapabilityReadError::CleanupFailed {
@@ -664,7 +665,7 @@ impl From<&CapabilityReadError> for SharedCapabilityReadError {
                 instance_id: instance_id.clone(),
                 connection_generation: *connection_generation,
                 owner_source: *owner_source,
-                error: error.clone(),
+                error: error.as_ref().clone(),
             },
             CapabilityReadError::ProjectionFailed {
                 server_id,
@@ -714,7 +715,7 @@ impl SharedCapabilityReadError {
                 operation,
                 kind,
                 catalog_error: catalog_error.map(SharedCatalogError::into_error),
-                existing: existing.map(SharedDiscoveryAttemptFailure::into_failure),
+                existing: existing.map(|failure| Box::new(failure.into_failure())),
                 fresh: fresh.map(|failure| failure.into_failure()).map(Box::new),
             },
             Self::CleanupFailed {
@@ -732,7 +733,7 @@ impl SharedCapabilityReadError {
                 instance_id,
                 connection_generation,
                 owner_source,
-                error,
+                error: Box::new(error),
             },
             Self::ProjectionFailed {
                 server_id,
@@ -1465,7 +1466,7 @@ impl CapabilityReadService {
                 instance_id,
                 connection_generation,
                 owner_source,
-                error,
+                error: Box::new(error),
             })
     }
 
@@ -1621,7 +1622,7 @@ impl CapabilityReadService {
                 .await
             {
                 Ok(result) => return Ok(result),
-                Err(OwnerReadError::Attempt { failure, disposition }) => (Some(failure), disposition),
+                Err(OwnerReadError::Attempt { failure, disposition }) => (Some(*failure), disposition),
                 Err(OwnerReadError::Cleanup(error) | OwnerReadError::Projection(error)) => {
                     return Err(*error);
                 }
@@ -1683,7 +1684,7 @@ impl CapabilityReadService {
                 server_name,
                 catalog_error,
                 existing_error,
-                Some(failure),
+                Some(*failure),
             )),
             Err(OwnerReadError::Cleanup(error) | OwnerReadError::Projection(error)) => Err(*error),
         }
@@ -1716,7 +1717,7 @@ impl CapabilityReadService {
                         let attempt = DiscoveryAttemptFailure::commit(&owner, failure);
                         self.release_after_failed_attempt(ctx, owner).await;
                         return Err(OwnerReadError::Attempt {
-                            failure: attempt,
+                            failure: Box::new(attempt),
                             disposition: DiscoveryRetryDisposition::DoNotRetry,
                         });
                     }
@@ -1739,7 +1740,7 @@ impl CapabilityReadService {
                             instance_id,
                             connection_generation,
                             owner_source: source,
-                            error,
+                            error: Box::new(error),
                         }))),
                     },
                     Err(projection_failure) => {
@@ -1774,7 +1775,7 @@ impl CapabilityReadService {
                 let attempt = DiscoveryAttemptFailure::runtime(&owner, failure);
                 self.release_after_failed_attempt(ctx, owner).await;
                 Err(OwnerReadError::Attempt {
-                    failure: attempt,
+                    failure: Box::new(attempt),
                     disposition,
                 })
             }
@@ -1921,7 +1922,7 @@ fn discovery_error(
         operation: capability_operation(ctx.capability),
         kind: ctx.capability,
         catalog_error,
-        existing,
+        existing: existing.map(Box::new),
         fresh: fresh.map(Box::new),
     }
 }
@@ -2682,7 +2683,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");
@@ -3424,10 +3425,13 @@ mod tests {
                 instance_id,
                 connection_generation,
                 owner_source,
-                error: CapabilityOwnerError::Other { reason },
+                error,
                 ..
             } = error
             else {
+                panic!("cleanup failure must retain its typed variant");
+            };
+            let CapabilityOwnerError::Other { reason } = error.as_ref() else {
                 panic!("cleanup failure must retain its typed variant");
             };
             assert_eq!(instance_id, "Fresh-1");
@@ -3840,9 +3844,12 @@ mod tests {
                 server_name,
                 operation,
                 owner_source,
-                error: CapabilityOwnerError::Other { reason },
+                error,
                 ..
             } => {
+                let CapabilityOwnerError::Other { reason } = error.as_ref() else {
+                    panic!("unexpected cleanup error: {error:?}");
+                };
                 assert_eq!(server_name, "docs");
                 assert_eq!(operation, "management catalog warm");
                 assert_eq!(owner_source, OwnerSource::Fresh);
@@ -4149,16 +4156,18 @@ mod tests {
         assert_eq!(error.operation_timeout_ms(), None);
         match error {
             CapabilityReadError::DiscoveryFailed {
-                existing:
-                    Some(DiscoveryAttemptFailure {
-                        instance_id: None,
-                        connection_generation: None,
-                        source: OwnerSource::Existing,
-                        error: CapabilityAttemptError::Owner(CapabilityOwnerError::Timeout { timeout_ms: 125 }),
-                    }),
+                existing: Some(failure),
                 fresh: None,
                 ..
-            } => {}
+            } => {
+                assert_eq!(failure.instance_id, None);
+                assert_eq!(failure.connection_generation, None);
+                assert_eq!(failure.source, OwnerSource::Existing);
+                assert!(matches!(
+                    failure.error,
+                    CapabilityAttemptError::Owner(CapabilityOwnerError::Timeout { timeout_ms: 125 })
+                ));
+            }
             other => panic!("unexpected error: {other:?}"),
         }
         assert_eq!(provider.fresh_calls.load(Ordering::Relaxed), 0);
@@ -4191,21 +4200,20 @@ mod tests {
         assert_eq!(error.operation_timeout_ms(), Some(1_000));
         match error {
             CapabilityReadError::DiscoveryFailed {
-                existing:
-                    Some(DiscoveryAttemptFailure {
-                        instance_id: Some(instance_id),
-                        connection_generation: None,
-                        source: OwnerSource::Existing,
-                        error:
-                            CapabilityAttemptError::Runtime(RuntimeFailure {
-                                kind: RuntimeFailureKind::Timeout,
-                                timeout_ms: Some(1_000),
-                                ..
-                            }),
-                    }),
+                existing: Some(failure),
                 fresh: None,
                 ..
-            } => assert_eq!(instance_id, "Existing-1"),
+            } => {
+                assert_eq!(failure.instance_id.as_deref(), Some("Existing-1"));
+                assert!(matches!(
+                    failure.error,
+                    CapabilityAttemptError::Runtime(RuntimeFailure {
+                        kind: RuntimeFailureKind::Timeout,
+                        timeout_ms: Some(1_000),
+                        ..
+                    })
+                ));
+            }
             other => panic!("unexpected error: {other:?}"),
         }
         assert_eq!(provider.fresh_calls.load(Ordering::Relaxed), 0);
@@ -4301,12 +4309,12 @@ mod tests {
                 operation: "tools/list",
                 kind: CapabilityType::Tools,
                 catalog_error: None,
-                existing: Some(DiscoveryAttemptFailure {
+                existing: Some(Box::new(DiscoveryAttemptFailure {
                     instance_id: Some("instance-1".to_string()),
                     connection_generation: None,
                     source: OwnerSource::Existing,
                     error: existing_error,
-                }),
+                })),
                 fresh: None,
             }
         }
@@ -4365,10 +4373,10 @@ mod tests {
                 instance_id: "instance-1".to_string(),
                 connection_generation: None,
                 owner_source: OwnerSource::Existing,
-                error: CapabilityOwnerError::Authentication {
+                error: Box::new(CapabilityOwnerError::Authentication {
                     code: CapabilityAuthenticationFailureCode::Forbidden,
                     reason: "403 from upstream".to_string(),
-                },
+                }),
             };
 
             assert!(matches!(map_capability_read_error(&error), ApiError::Unauthorized(_)));

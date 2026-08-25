@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use futures::StreamExt;
-use json5;
 use once_cell::sync::Lazy;
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, ClientRequest, ContentBlock, Resource, ResourceTemplate,
@@ -22,7 +21,6 @@ use crate::core::foundation::types::ConnectionStatus;
 use crate::core::pool::UpstreamConnectionPool;
 use crate::core::profile::visibility::{ProfileVisibilityService, VisibilitySnapshot};
 use crate::core::proxy::server::{ClientContext, ClientIdentitySource, ClientTransport};
-use crate::system::paths::PathService;
 
 use super::{
     ClientBuiltinContext,
@@ -2990,31 +2988,36 @@ fn default_ucan_prompt_config() -> UcanPromptConfig {
     }
 }
 
-fn resolve_ucan_prompt_config_path() -> Result<PathBuf> {
-    let path_service = PathService::new().context("Create PathService for UCAN prompt config")?;
-    let path_hint = std::env::var("MCPMATE_UCAN_CONFIG")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| format!("{}/config/ucan.json5", env!("CARGO_MANIFEST_DIR")));
-    path_service
-        .resolve_user_path(&path_hint)
-        .context("Resolve UCAN prompt config path")
+fn resolve_ucan_prompt_config_override_path() -> Result<Option<PathBuf>> {
+    crate::common::json5_config::resolve_env_config_override(
+        "MCPMATE_UCAN_CONFIG",
+        "Create PathService for UCAN prompt config",
+    )
 }
 
+const BUNDLED_UCAN_PROMPT_CONFIG: &str = include_str!("../../../config/ucan.json5");
+const UCAN_PROMPT_CONFIG_LABEL: &str = "UCAN prompt config";
+
+/// Load UCAN prompt copy from override path or bundled JSON5.
+///
+/// Override failures return an error; callers should fall back to [`default_ucan_prompt_config`].
 fn load_ucan_prompt_config_blocking() -> Result<UcanPromptConfig> {
-    let path = resolve_ucan_prompt_config_path()?;
-    let content =
-        std::fs::read_to_string(&path).with_context(|| format!("Read UCAN prompt config from {}", path.display()))?;
-    let value: serde_json::Value =
-        json5::from_str(&content).with_context(|| format!("Parse UCAN prompt config from {}", path.display()))?;
-    if !value.is_object() {
-        return Err(anyhow!(
-            "UCAN prompt config at {} must be a JSON5 object",
-            path.display()
-        ));
+    if let Some(path) = resolve_ucan_prompt_config_override_path()? {
+        return load_ucan_prompt_config_from_path(&path);
     }
-    let config: UcanPromptConfig =
-        serde_json::from_value(value).with_context(|| format!("Decode UCAN prompt config from {}", path.display()))?;
+    parse_ucan_prompt_config(BUNDLED_UCAN_PROMPT_CONFIG, "bundled ucan.json5")
+}
+
+fn load_ucan_prompt_config_from_path(path: &std::path::Path) -> Result<UcanPromptConfig> {
+    let config = crate::common::json5_config::load_json5_object_from_path(path, UCAN_PROMPT_CONFIG_LABEL)?;
+    Ok(normalize_ucan_prompt_config(config))
+}
+
+fn parse_ucan_prompt_config(
+    content: &str,
+    source: &str,
+) -> Result<UcanPromptConfig> {
+    let config = crate::common::json5_config::parse_json5_object(content, source, UCAN_PROMPT_CONFIG_LABEL)?;
     Ok(normalize_ucan_prompt_config(config))
 }
 
@@ -3335,7 +3338,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect resolver database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");
@@ -3840,7 +3843,7 @@ mod tests {
             None,
         )
         .await;
-        let profile_id = crate::test_helpers::insert_profile(
+        let profile_id = crate::helpers::insert_profile(
             &database.pool,
             &Profile::new("filtered".to_string(), ProfileType::Scenario),
         )
@@ -4685,14 +4688,14 @@ mod tests {
     fn bundled_ucan_json5_is_well_formed_object() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         unsafe { std::env::remove_var("MCPMATE_UCAN_CONFIG") };
-        let path = super::resolve_ucan_prompt_config_path().expect("resolve config path");
-        let content = std::fs::read_to_string(&path).expect("read ucan config");
-        let value: serde_json::Value = json5::from_str(&content).expect("parse json5");
-        assert!(value.is_object(), "ucan.json5 root must be object");
-        let bundled = super::load_ucan_prompt_config_blocking().expect("load bundled prompt config");
+        let bundled = super::parse_ucan_prompt_config(super::BUNDLED_UCAN_PROMPT_CONFIG, "bundled ucan.json5")
+            .expect("parse bundled prompt config");
+        let loaded = super::load_ucan_prompt_config_blocking().expect("load bundled prompt config");
         let fallback = super::default_ucan_prompt_config();
         assert_eq!(bundled.catalog_usage, fallback.catalog_usage);
         assert_eq!(bundled.error_recovery_hint, fallback.error_recovery_hint);
+        assert_eq!(loaded.catalog_usage, bundled.catalog_usage);
+        assert_eq!(loaded.error_recovery_hint, bundled.error_recovery_hint);
     }
 
     #[test]

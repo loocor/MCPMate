@@ -10,18 +10,15 @@ pub(crate) fn decode_utf16_le_bytes(bytes: &[u8]) -> Result<Value> {
         return Err(CherryDbError::EncodingError("Empty bytes".to_string()));
     }
 
-    // Skip the header byte (0x00) and convert remaining bytes to u16
-    let utf16_bytes = &bytes[1..];
-    if !utf16_bytes.len().is_multiple_of(2) {
+    // Skip the header byte (0x00) and convert remaining bytes to u16.
+    let (pairs, leftover) = bytes[1..].as_chunks::<2>();
+    if !leftover.is_empty() {
         return Err(CherryDbError::EncodingError(
             "Invalid UTF-16 data length".to_string(),
         ));
     }
 
-    let utf16_chars: Vec<u16> = utf16_bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect();
+    let utf16_chars: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
 
     // Convert UTF-16 to String
     let json_string = String::from_utf16(&utf16_chars)

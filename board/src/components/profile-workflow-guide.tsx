@@ -1,23 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
-  Check,
   ChevronLeft,
-  ChevronRight,
   Eye,
-  FilePlus2,
-  FileText,
+  MapPin,
+  PanelRight,
   Pencil,
-  Plus,
   Save,
-  Upload,
+  Trash2,
   Wrench,
 } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type SyntheticEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,12 +26,24 @@ import remarkGfm from "remark-gfm";
 
 import { ApiRequestError, configSuitsApi } from "../lib/api";
 import {
+  buildLineOffsets,
   capabilitySource,
+  externalReferenceSource,
+  commitMarkdownCellSource,
+  formatMarkdownCellSourceForEditor,
+  markdownCellAfterInsert,
+  restoreAfterCanceledInsert,
+  markdownCellEditAnchor,
   parseWorkflowGuide,
+  sanitizeWorkflowGuideMarkdown,
   splitWorkflowGuideDocument,
+  stripLeadingSkillFrontMatter,
+  IN_PLACE_MARKDOWN_SNIPPET,
   type WorkflowGuideDocumentCell,
+  type WorkflowGuideParseResult,
 } from "../lib/workflow-guide-directive";
 import type {
+  WorkflowGuide,
   WorkflowGuideCapability,
   WorkflowGuideExternalDocument,
   WorkflowGuidePackageCategory,
@@ -42,7 +53,27 @@ import type {
 import type { WorkflowCapabilityOption } from "../lib/profile-workflow-specification";
 import { cn } from "../lib/utils";
 import { notifyError, notifySuccess } from "../lib/notify";
+import { BulkSelectionHeader } from "./bulk-selection";
+import { CardListScrollBody } from "./card-list-scroll-body";
+import { PROFILE_EDITOR_SIDEBAR_SCROLL_CLASS } from "./capsule-stripe-list";
+import {
+  COMPOSER_SHELL_CLASS,
+  GUIDE_ACTION_BUTTON_CLASS,
+  GUIDE_ICON_BUTTON_CLASS,
+  GUIDE_SAVE_BUTTON_CLASS,
+  GuideBoundaryInsert,
+  GuideCapabilityBlock,
+  GuideCapabilityFields,
+  GuideComposerHeader,
+} from "./workflow-guide-boundary-insert";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,9 +84,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Input } from "./ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Segment } from "./ui/segment";
 import { Textarea } from "./ui/textarea";
 import { ResizableSplitPane } from "./resizable-split-pane";
 
@@ -63,15 +91,83 @@ interface ProfileWorkflowGuideProps {
   profileId: string;
   capabilities: WorkflowCapabilityOption[];
   capabilitiesLoading?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+const GUIDE_NAV_DOCUMENT_CLASS =
+  "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+const GUIDE_NAV_NESTED_CLASS =
+  "flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+const GUIDE_INSPECTOR_ROW_CLASS =
+  "group rounded-sm px-1.5 py-1 text-foreground/70 transition-colors hover:text-foreground focus-within:text-foreground";
+const GUIDE_INSPECTOR_NAV_NESTED_CLASS =
+  "flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-xs hover:font-medium focus-visible:font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+
+const GUIDE_NAV_INDENT_STEP_REM = 0.75;
+
+
+function normalizeLoadedGuideMarkdown(markdown: string): string {
+  return sanitizeWorkflowGuideMarkdown(
+    stripLeadingSkillFrontMatter(markdown).body,
+  );
+}
+
+
+/** First outline child sits one step beyond the document row (px-3). */
+function guideNavOutlineIndent(depth: number) {
+  return {
+    paddingLeft: `${GUIDE_NAV_INDENT_STEP_REM * (1 + depth)}rem`,
+  };
+}
+
+/** Inspector hover children use a single step from the parent row label. */
+function guideNavInspectorIndent() {
+  return { paddingLeft: `${GUIDE_NAV_INDENT_STEP_REM}rem` };
+}
+
+function outlineHeadingDepth(
+  headings: Array<{ level: number }>,
+  heading: { level: number },
+) {
+  const baseLevel = headings[0]?.level ?? 1;
+  return heading.level - baseLevel + 1;
+}
+
+function outlineHeadingsForDocument(
+  title: string,
+  headings: Array<{ level: number; text: string; offset: number }>,
+) {
+  const normalizedTitle = title.trim().toLowerCase();
+  if (
+    headings.length > 0 &&
+    headings[0].level === 1 &&
+    headings[0].text.trim().toLowerCase() === normalizedTitle
+  ) {
+    return headings.slice(1);
+  }
+  return headings;
+}
+
+function guidePlaceAriaLabel(
+  index: number,
+  path: string,
+  placeLabel: string,
+) {
+  return `${placeLabel} ${index + 1} · ${path}`;
 }
 
 export function ProfileWorkflowGuide({
   profileId,
   capabilities,
   capabilitiesLoading = false,
+  onDirtyChange,
 }: ProfileWorkflowGuideProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [insertComposerOffset, setInsertComposerOffset] = useState<
+    number | null
+  >(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const selectionRef = useRef({ start: 0, end: 0 });
   const loadedGuideRef = useRef<{
@@ -84,6 +180,10 @@ export function ProfileWorkflowGuide({
     queryFn: () => configSuitsApi.getWorkflowGuide(profileId),
   });
   const [markdown, setMarkdown] = useState("");
+  // Content baseline for SKILL.md; root dirty is derived so cancel/restore can clear it.
+  const [rootBaseline, setRootBaseline] = useState("");
+  const rootDirty = markdown !== rootBaseline;
+  rootDirtyRef.current = rootDirty;
   const [packageFiles, setPackageFiles] = useState<WorkflowGuidePackageFile[]>(
     [],
   );
@@ -91,20 +191,37 @@ export function ProfileWorkflowGuide({
   const [externalDocuments, setExternalDocuments] = useState<
     Record<string, WorkflowGuideExternalDocument>
   >({});
+  const [externalBaselines, setExternalBaselines] = useState<
+    Record<string, string>
+  >({});
   const [editorMode, setEditorMode] = useState<"notebook" | "preview">(
     "notebook",
   );
   const [editingCellId, setEditingCellId] = useState<string | null>(null);
+  // Frozen character range for the open markdown cell edit; typing inside the
+  // form replaces this exact range instead of racing the live cell re-split.
+  const [editSession, setEditSession] = useState<{
+    start: number;
+    end: number;
+    // Snapshot the cell had when the editor opened; cancel restores it, or
+    // removes the whole range for freshly inserted in-place cells.
+    original: string;
+    inserted: boolean;
+    // Full document body before an in-place insert; preferred cancel restore.
+    restoreMarkdown?: string;
+  } | null>(null);
   const [pendingLocation, setPendingLocation] = useState<{
     path: string;
     offset: number;
   } | null>(null);
+  const [pendingCellDelete, setPendingCellDelete] =
+    useState<WorkflowGuideDocumentCell | null>(null);
   const [pendingReclamation, setPendingReclamation] = useState<{
-    target: "root" | "external";
     packageFiles: WorkflowGuidePackageFile[];
     capabilities: WorkflowGuideCapability[];
   } | null>(null);
   const editorOffsetRef = useRef(0);
+  const insertEpochRef = useRef(0);
   useEffect(() => {
     if (!guideQuery.data) return;
     setPackageFiles(guideQuery.data.package_files);
@@ -112,20 +229,28 @@ export function ProfileWorkflowGuide({
     const revisionChanged =
       loadedGuideRef.current?.guideRevision !== guideQuery.data.guide_revision;
     if (profileChanged || (revisionChanged && !rootDirtyRef.current)) {
-      const normalizedMarkdown = stripLeadingSkillFrontMatter(
+      const normalizedMarkdown = normalizeLoadedGuideMarkdown(
         guideQuery.data.markdown,
-      ).body;
+      );
       setMarkdown(normalizedMarkdown);
+      setRootBaseline(normalizedMarkdown);
       selectionRef.current = {
         start: normalizedMarkdown.length,
         end: normalizedMarkdown.length,
       };
-      setEditingCellId(null);
-      rootDirtyRef.current = false;
+      closeCellEditor();
     }
     if (profileChanged) {
       setActiveDocumentPath("SKILL.md");
       setExternalDocuments({});
+      setExternalBaselines(
+        Object.fromEntries(
+          (guideQuery.data.documents ?? []).map((document) => [
+            document.relative_path,
+            sanitizeWorkflowGuideMarkdown(document.markdown),
+          ]),
+        ),
+      );
       setEditorMode("notebook");
       setPendingLocation(null);
       setPendingReclamation(null);
@@ -139,9 +264,13 @@ export function ProfileWorkflowGuide({
   const loadedExternalDocuments = useMemo(
     () =>
       Object.fromEntries(
-        (guideQuery.data?.documents ?? []).map((document) =>
-          [document.relative_path, document] as const,
-        ),
+        (guideQuery.data?.documents ?? []).map((document) => [
+          document.relative_path,
+          {
+            ...document,
+            markdown: sanitizeWorkflowGuideMarkdown(document.markdown),
+          },
+        ]),
       ),
     [guideQuery.data?.documents],
   );
@@ -149,10 +278,51 @@ export function ProfileWorkflowGuide({
     () => ({ ...loadedExternalDocuments, ...externalDocuments }),
     [loadedExternalDocuments, externalDocuments],
   );
+  const externalDirtyPaths = useMemo(
+    () =>
+      Object.entries(resolvedExternalDocuments)
+        .filter(
+          ([path, document]) =>
+            externalBaselines[path] !== undefined &&
+            document.markdown !== externalBaselines[path],
+        )
+        .map(([path]) => path),
+    [resolvedExternalDocuments, externalBaselines],
+  );
+  const hasDirtyChanges = rootDirty || externalDirtyPaths.length > 0;
+  useEffect(() => {
+    onDirtyChange?.(hasDirtyChanges);
+  }, [hasDirtyChanges, onDirtyChange]);
+  useEffect(() => {
+    if (!hasDirtyChanges) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasDirtyChanges]);
+  const parsedSkillGuide = useMemo(() => parseWorkflowGuide(markdown), [markdown]);
+  const parsedDirtyExternalGuides = useMemo(() => {
+    const guides = new Map<string, WorkflowGuideParseResult>();
+    for (const path of externalDirtyPaths) {
+      guides.set(
+        path,
+        parseWorkflowGuide(resolvedExternalDocuments[path]?.markdown ?? ""),
+      );
+    }
+    return guides;
+  }, [externalDirtyPaths, resolvedExternalDocuments]);
+  const hasBlockingGuideErrors = useMemo(() => {
+    if (rootDirty && parsedSkillGuide.errors.length > 0) return true;
+    return externalDirtyPaths.some(
+      (path) => (parsedDirtyExternalGuides.get(path)?.errors.length ?? 0) > 0,
+    );
+  }, [externalDirtyPaths, parsedDirtyExternalGuides, parsedSkillGuide.errors, rootDirty]);
   const reachableExternalDocuments = useMemo(
     () =>
-      Object.keys(loadedExternalDocuments).map(
-        (path) => resolvedExternalDocuments[path] ?? loadedExternalDocuments[path],
+      Object.values(loadedExternalDocuments).map(
+        (document) => resolvedExternalDocuments[document.relative_path] ?? document,
       ),
     [loadedExternalDocuments, resolvedExternalDocuments],
   );
@@ -165,32 +335,107 @@ export function ProfileWorkflowGuide({
     () => stripLeadingSkillFrontMatter(activeMarkdown).body,
     [activeMarkdown],
   );
-  const updateActiveMarkdown = (updater: (current: string) => string) => {
-    if (activeExternalDocument) {
-      setExternalDocuments((current) => ({
-        ...current,
-        [activeDocumentPath]: {
-          ...current[activeDocumentPath],
-          markdown: updater(current[activeDocumentPath].markdown),
-        },
-      }));
+  // `normalize: false` keeps an open edit session's character offsets exact:
+  // sanitizing can insert heading newlines and shift the range out of sync.
+  const updateActiveMarkdown = (
+    updater: (current: string) => string,
+    options?: { normalize?: boolean },
+  ) => {
+    const apply = (current: string) =>
+      options?.normalize === false
+        ? updater(current)
+        : sanitizeWorkflowGuideMarkdown(updater(current));
+    if (activeDocumentPath !== "SKILL.md") {
+      setExternalDocuments((current) => {
+        const existing =
+          current[activeDocumentPath] ??
+          loadedExternalDocuments[activeDocumentPath];
+        if (!existing) return current;
+        return {
+          ...current,
+          [activeDocumentPath]: {
+            ...existing,
+            markdown: apply(existing.markdown),
+          },
+        };
+      });
       return;
     }
-    setMarkdown((current) => updater(current));
-    rootDirtyRef.current = true;
+    setMarkdown((current) => apply(current));
   };
+  const strippedRootBody = useMemo(
+    () => stripLeadingSkillFrontMatter(markdown).body,
+    [markdown],
+  );
+  const parsedRootBodyGuide = useMemo(
+    () => parseWorkflowGuide(strippedRootBody),
+    [strippedRootBody],
+  );
   const guide = useMemo(
     () => parseWorkflowGuide(notebookMarkdown),
     [notebookMarkdown],
   );
   const mainGuideTitle = useMemo(
-    () => parseWorkflowGuide(markdown).headings[0]?.text ?? "SKILL.md",
-    [markdown],
+    () => parsedRootBodyGuide.headings[0]?.text ?? "SKILL.md",
+    [parsedRootBodyGuide],
+  );
+  const referenceMarkdownFiles = useMemo(
+    () =>
+      packageFiles.filter(
+        (file) => file.category === "reference" && file.extension === "md",
+      ),
+    [packageFiles],
+  );
+  const parsedExternalBodyGuides = useMemo(() => {
+    const guides = new Map<string, WorkflowGuideParseResult>();
+    for (const file of referenceMarkdownFiles) {
+      const document =
+        resolvedExternalDocuments[file.relative_path] ??
+        loadedExternalDocuments[file.relative_path];
+      if (!document) continue;
+      guides.set(
+        file.relative_path,
+        parseWorkflowGuide(stripLeadingSkillFrontMatter(document.markdown).body),
+      );
+    }
+    return guides;
+  }, [loadedExternalDocuments, referenceMarkdownFiles, resolvedExternalDocuments]);
+  const outlineSections = useMemo(
+    () => [
+      {
+        path: "SKILL.md",
+        title: mainGuideTitle,
+        badge: "SKILL.md",
+        headings: outlineHeadingsForDocument(
+          mainGuideTitle,
+          parsedRootBodyGuide.headings,
+        ),
+      },
+      ...referenceMarkdownFiles.map((file) => {
+        const parsed = parsedExternalBodyGuides.get(file.relative_path);
+        return {
+          path: file.relative_path,
+          title: file.title,
+          badge: "reference" as const,
+          headings: parsed
+            ? outlineHeadingsForDocument(file.title, parsed.headings)
+            : [],
+        };
+      }),
+    ],
+    [mainGuideTitle, parsedExternalBodyGuides, parsedRootBodyGuide.headings, referenceMarkdownFiles],
   );
   const documentCells = useMemo(
     () => splitWorkflowGuideDocument(notebookMarkdown, activeDocumentPath),
     [activeDocumentPath, notebookMarkdown],
   );
+  const editAnchor = useMemo(
+    () =>
+      editSession ? markdownCellEditAnchor(documentCells, editSession) : null,
+    [documentCells, editSession],
+  );
+  const editAnchorCell =
+    editAnchor?.mode === "replace" ? documentCells[editAnchor.index] : undefined;
   useEffect(() => {
     if (!pendingLocation || pendingLocation.path !== activeDocumentPath) return;
     const cell = documentCells.find(
@@ -204,6 +449,9 @@ export function ProfileWorkflowGuide({
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
     setPendingLocation(null);
   }, [activeDocumentPath, documentCells, pendingLocation]);
+  useEffect(() => {
+    setInsertComposerOffset(null);
+  }, [activeDocumentPath, editorMode]);
   const documentSources = useMemo(
     () => [
       { path: "SKILL.md", title: "SKILL.md", markdown },
@@ -215,18 +463,22 @@ export function ProfileWorkflowGuide({
     ],
     [markdown, reachableExternalDocuments],
   );
+  const parsedDocumentGuides = useMemo(() => {
+    const guides = new Map<string, WorkflowGuideParseResult>();
+    for (const source of documentSources) {
+      guides.set(source.path, parseWorkflowGuide(source.markdown));
+    }
+    return guides;
+  }, [documentSources]);
   const capabilityOccurrences = useMemo(
-    () => collectCapabilityOccurrences(documentSources),
-    [documentSources],
+    () => collectCapabilityOccurrences(documentSources, parsedDocumentGuides),
+    [documentSources, parsedDocumentGuides],
   );
   const materialOccurrences = useMemo(
-    () => collectMaterialOccurrences(documentSources),
-    [documentSources],
+    () => collectMaterialOccurrences(documentSources, parsedDocumentGuides),
+    [documentSources, parsedDocumentGuides],
   );
-  const captureReclamation = (
-    error: unknown,
-    target: "root" | "external",
-  ) => {
+  const captureReclamation = (error: unknown) => {
     if (
       !(error instanceof ApiRequestError) ||
       error.code !== "workflow_guide_reclamation_required"
@@ -234,7 +486,6 @@ export function ProfileWorkflowGuide({
       return false;
     }
     setPendingReclamation({
-      target,
       packageFiles: error.details?.packageFiles ?? [],
       capabilities: error.details?.capabilities ?? [],
     });
@@ -264,13 +515,19 @@ export function ProfileWorkflowGuide({
   const saveMutation = useMutation({
     mutationFn: (
       reclamationConfirmation?: WorkflowGuideReclamationConfirmation,
-    ) =>
-      configSuitsApi.saveWorkflowGuide({
+    ) => {
+      const guide = queryClient.getQueryData<WorkflowGuide>([
+        "workflowGuide",
+        profileId,
+      ]);
+      if (!guide) throw new Error("Workflow Guide is not loaded yet");
+      return configSuitsApi.saveWorkflowGuide({
         profile_id: profileId,
-        expected_guide_revision: guideQuery.data!.guide_revision,
-        markdown,
+        expected_guide_revision: guide.guide_revision,
+        markdown: sanitizeWorkflowGuideMarkdown(markdown),
         reclamation_confirmation: reclamationConfirmation,
-      }),
+      });
+    },
     onSuccess: async (saved) => {
       await queryClient.invalidateQueries({
         queryKey: ["workflowGuide", profileId],
@@ -283,19 +540,22 @@ export function ProfileWorkflowGuide({
           defaultValue: "Workflow Guide saved",
         }),
       );
-      setMarkdown(saved.guide.markdown);
-      rootDirtyRef.current = false;
+      const normalizedMarkdown = normalizeLoadedGuideMarkdown(
+        saved.guide.markdown,
+      );
+      setMarkdown(normalizedMarkdown);
+      setRootBaseline(normalizedMarkdown);
       setPendingReclamation(null);
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
-      if (captureReclamation(error, "root")) return;
+      if (captureReclamation(error)) return;
       notifyError(
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.saveFailed", {
-              defaultValue: "Failed to save Workflow Guide",
-            }),
+            defaultValue: "Failed to save Workflow Guide",
+          }),
       );
     },
   });
@@ -304,7 +564,7 @@ export function ProfileWorkflowGuide({
       configSuitsApi.previewWorkflowGuide({
         profile_id: profileId,
         relative_path: activeExternalDocument?.relative_path,
-        markdown: activeMarkdown,
+        markdown: sanitizeWorkflowGuideMarkdown(activeMarkdown),
       }),
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -312,11 +572,22 @@ export function ProfileWorkflowGuide({
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.previewFailed", {
-              defaultValue: "Failed to render Skill Preview",
-            }),
+            defaultValue: "Failed to render Skill Preview",
+          }),
       );
     },
   });
+  // Depend on `mutate` (a stable instance method), not the mutation result:
+  // the result object gets a new identity on every status transition and
+  // would re-arm this debounce into an endless preview loop.
+  const previewMutate = previewMutation.mutate;
+  useEffect(() => {
+    if (editorMode !== "preview") return;
+    const timer = window.setTimeout(() => {
+      previewMutate();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [activeDocumentPath, activeMarkdown, editorMode, previewMutate]);
   const externalDocumentMutation = useMutation({
     mutationFn: (file: WorkflowGuidePackageFile) =>
       configSuitsApi.getWorkflowGuideExternalDocument(
@@ -324,13 +595,20 @@ export function ProfileWorkflowGuide({
         file.package_file_id,
       ),
     onSuccess: (document) => {
+      const markdown = sanitizeWorkflowGuideMarkdown(document.markdown);
       setExternalDocuments((current) => ({
         ...current,
-        [document.relative_path]: document,
+        [document.relative_path]: {
+          ...document,
+          markdown,
+        },
+      }));
+      setExternalBaselines((current) => ({
+        ...current,
+        [document.relative_path]: markdown,
       }));
       setActiveDocumentPath(document.relative_path);
-      setEditorMode("notebook");
-      setEditingCellId(null);
+      closeCellEditor();
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -338,8 +616,8 @@ export function ProfileWorkflowGuide({
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.documentLoadFailed", {
-              defaultValue: "Failed to load external Markdown document",
-            }),
+            defaultValue: "Failed to load external Markdown document",
+          }),
       );
     },
   });
@@ -361,15 +639,8 @@ export function ProfileWorkflowGuide({
       return configSuitsApi.uploadWorkflowGuidePackageFile(formData);
     },
     onSuccess: (saved) => {
-      const file = saved.package_file;
       queryClient.setQueryData(["workflowGuide", profileId], saved.guide);
       setPackageFiles(saved.guide.package_files);
-      insert(`[${file.title}](${file.relative_path})`);
-      notifySuccess(
-        t("profiles:detail.workflow.guide.fileSaved", {
-          defaultValue: "Package file saved",
-        }),
-      );
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -377,61 +648,68 @@ export function ProfileWorkflowGuide({
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.fileSaveFailed", {
-              defaultValue: "Failed to save package file",
-            }),
+            defaultValue: "Failed to save package file",
+          }),
       );
     },
   });
   const saveExternalDocumentMutation = useMutation({
-    mutationFn: (
-      reclamationConfirmation?: WorkflowGuideReclamationConfirmation,
-    ) => {
-      if (!activeExternalDocument)
-        throw new Error("Select an external Markdown document first");
+    mutationFn: (input: {
+      path: string;
+      markdown: string;
+      reclamationConfirmation?: WorkflowGuideReclamationConfirmation;
+    }) => {
+      const guide = queryClient.getQueryData<WorkflowGuide>([
+        "workflowGuide",
+        profileId,
+      ]);
+      const file = guide?.package_files.find(
+        (candidate) => candidate.relative_path === input.path,
+      );
+      if (!guide || !file) {
+        throw new Error("External Markdown document is no longer available");
+      }
       const formData = new FormData();
       formData.append("profile_id", profileId);
-      formData.append(
-        "package_file_id",
-        activeExternalDocument.package_file_id,
-      );
-      formData.append(
-        "expected_file_revision",
-        String(activeExternalDocument.file_revision),
-      );
-      formData.append(
-        "expected_guide_revision",
-        String(guideQuery.data!.guide_revision),
-      );
-      if (reclamationConfirmation) {
+      formData.append("package_file_id", file.package_file_id);
+      formData.append("expected_file_revision", String(file.file_revision));
+      formData.append("expected_guide_revision", String(guide.guide_revision));
+      if (input.reclamationConfirmation) {
         formData.append(
           "reclamation_confirmation",
-          JSON.stringify(reclamationConfirmation),
+          JSON.stringify(input.reclamationConfirmation),
         );
       }
-      formData.append("title", activeExternalDocument.title);
+      formData.append("title", file.title);
       formData.append("category", "reference");
       formData.append(
         "file",
         new File(
-          [activeMarkdown],
-          activeExternalDocument.relative_path.split("/").pop() ??
-            "reference.md",
+          [sanitizeWorkflowGuideMarkdown(input.markdown)],
+          input.path.split("/").pop() ?? "reference.md",
           { type: "text/markdown" },
         ),
       );
       return configSuitsApi.uploadWorkflowGuidePackageFile(formData);
     },
-    onSuccess: async (saved) => {
+    onSuccess: async (saved, variables) => {
       const file = saved.package_file;
-      if (!activeExternalDocument) return;
-      setExternalDocuments((current) => ({
+      setExternalDocuments((current) => {
+        const existing = current[variables.path];
+        if (!existing) return current;
+        return {
+          ...current,
+          [file.relative_path]: {
+            ...existing,
+            title: file.title,
+            file_revision: file.file_revision,
+            relative_path: file.relative_path,
+          },
+        };
+      });
+      setExternalBaselines((current) => ({
         ...current,
-        [file.relative_path]: {
-          ...activeExternalDocument,
-          title: file.title,
-          file_revision: file.file_revision,
-          relative_path: file.relative_path,
-        },
+        [file.relative_path]: variables.markdown,
       }));
       queryClient.setQueryData(["workflowGuide", profileId], saved.guide);
       setPackageFiles(saved.guide.package_files);
@@ -447,13 +725,13 @@ export function ProfileWorkflowGuide({
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
-      if (captureReclamation(error, "external")) return;
+      if (captureReclamation(error)) return;
       notifyError(
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.documentSaveFailed", {
-              defaultValue: "Failed to save external Markdown document",
-            }),
+            defaultValue: "Failed to save external Markdown document",
+          }),
       );
     },
   });
@@ -496,15 +774,10 @@ export function ProfileWorkflowGuide({
         ...current,
         [document.relative_path]: document,
       }));
-      insert(`[${document.title}](${document.relative_path})`);
-      setActiveDocumentPath(document.relative_path);
-      setEditorMode("notebook");
-      setEditingCellId(null);
-      notifySuccess(
-        t("profiles:detail.workflow.guide.documentCreated", {
-          defaultValue: "External Markdown document created",
-        }),
-      );
+      setExternalBaselines((current) => ({
+        ...current,
+        [document.relative_path]: document.markdown,
+      }));
     },
     onError: (error) => {
       if (captureCommittedCleanup(error)) return;
@@ -512,8 +785,8 @@ export function ProfileWorkflowGuide({
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.documentCreateFailed", {
-              defaultValue: "Failed to create external Markdown document",
-            }),
+            defaultValue: "Failed to create external Markdown document",
+          }),
       );
     },
   });
@@ -534,17 +807,22 @@ export function ProfileWorkflowGuide({
         error instanceof Error
           ? error.message
           : t("profiles:detail.workflow.guide.repairFailed", {
-              defaultValue: "Failed to repair Skill package",
-            }),
+            defaultValue: "Failed to repair Skill package",
+          }),
       ),
   });
 
   const insert = (value: string) => {
     const editor = editorRef.current;
     const { start, end } = selectionRef.current;
-    updateActiveMarkdown(
-      (current) => `${current.slice(0, start)}${value}${current.slice(end)}`,
-    );
+    updateActiveMarkdown((current) => {
+      // Keep inserted content on its own line; paragraph separation for
+      // capability blocks is guaranteed by the projector, not the authoring
+      // source, so no blank-line padding is added here.
+      const prefix = start > 0 && current[start - 1] !== "\n" ? "\n" : "";
+      const suffix = end < current.length && current[end] !== "\n" ? "\n" : "";
+      return `${current.slice(0, start)}${prefix}${value}${suffix}${current.slice(end)}`;
+    });
     if (!editor) return;
     requestAnimationFrame(() => {
       editor.focus();
@@ -572,12 +850,124 @@ export function ProfileWorkflowGuide({
     updateCell(cell, `${capabilitySource(name, exposure, guide)}\n`);
   };
 
-  const beginCellEdit = (cell: WorkflowGuideDocumentCell) => {
+  const updateExternalReference = (
+    cell: WorkflowGuideDocumentCell,
+    title: string,
+    guide: string,
+  ) => {
+    if (!cell.externalReference) return;
+    updateCell(
+      cell,
+      `${externalReferenceSource(title, cell.externalReference.relativePath, guide)}\n`,
+    );
+  };
+
+  const deleteCell = (cell: WorkflowGuideDocumentCell) => {
+    closeCellEditor();
+    updateActiveMarkdown(
+      (current) =>
+        `${current.slice(0, cell.startOffset)}${current.slice(cell.endOffset)}`,
+    );
+  };
+
+  const beginCellEdit = (
+    cell: WorkflowGuideDocumentCell,
+    options?: { inserted?: boolean; restoreMarkdown?: string },
+  ) => {
     const offset = cell.startOffset;
     editorOffsetRef.current = offset;
     const cursor = cell.endOffset;
     selectionRef.current = { start: cursor, end: cursor };
     setEditingCellId(cell.id);
+    if (cell.kind === "markdown") {
+      setEditSession({
+        start: cell.startOffset,
+        end: cell.endOffset,
+        original: cell.source,
+        inserted: options?.inserted ?? false,
+        restoreMarkdown: options?.restoreMarkdown,
+      });
+    } else {
+      setEditSession(null);
+    }
+  };
+  const closeCellEditor = () => {
+    setEditingCellId(null);
+    setEditSession(null);
+  };
+  const cancelCellEdit = () => {
+    if (!editSession) {
+      closeCellEditor();
+      return;
+    }
+    const { start, end, inserted, restoreMarkdown } = editSession;
+    if (inserted) {
+      // Prefer the pre-insert document snapshot so surrounding newlines added
+      // only for the insert composer do not leave a false-dirty residue.
+      updateActiveMarkdown(
+        (current) =>
+          restoreAfterCanceledInsert(current, {
+            start,
+            end,
+            restoreMarkdown,
+          }),
+        { normalize: false },
+      );
+    }
+    closeCellEditor();
+  };
+  const finalizeCellEdit = (editorValue: string) => {
+    if (!editSession) {
+      closeCellEditor();
+      return;
+    }
+    const { start, end } = editSession;
+    const isolated = commitMarkdownCellSource(editorValue);
+    updateActiveMarkdown(
+      (current) => `${current.slice(0, start)}${isolated}${current.slice(end)}`,
+    );
+    closeCellEditor();
+  };
+  const markdownEditForm = editSession ? (
+    <GuideMarkdownEditForm
+      editorRef={editorRef}
+      initialSource={notebookMarkdown.slice(
+        editSession.start,
+        editSession.end,
+      )}
+      onCancel={cancelCellEdit}
+      onDelete={
+        editAnchorCell && !editSession.inserted
+          ? () => setPendingCellDelete(editAnchorCell)
+          : undefined
+      }
+      onDone={finalizeCellEdit}
+      onSelect={(event) => trackSelection(event, editSession.start)}
+    />
+  ) : null;
+
+  const insertInPlaceMarkdownAt = (offset: number) => {
+    const restoreMarkdown = notebookMarkdown;
+    let nextMarkdown = notebookMarkdown;
+    updateActiveMarkdown(
+      (current) => {
+        const prefix = offset > 0 && current[offset - 1] !== "\n" ? "\n" : "";
+        const suffix =
+          offset < current.length && current[offset] !== "\n" ? "\n" : "";
+        nextMarkdown = `${current.slice(0, offset)}${prefix}${IN_PLACE_MARKDOWN_SNIPPET}${suffix}${current.slice(offset)}`;
+        return nextMarkdown;
+      },
+      { normalize: false },
+    );
+    const cell = markdownCellAfterInsert(
+      nextMarkdown,
+      offset,
+      IN_PLACE_MARKDOWN_SNIPPET,
+      activeDocumentPath,
+    );
+    if (cell) {
+      beginCellEdit(cell, { inserted: true, restoreMarkdown });
+    }
   };
 
   const trackSelection = (
@@ -597,12 +987,16 @@ export function ProfileWorkflowGuide({
     exposure: "direct" | "meta_on_demand",
     guide: string,
   ) => {
-    insert(`\n${capabilitySource(capability.label, exposure, guide)}\n`);
+    insert(capabilitySource(capability.label, exposure, guide));
   };
   const openOccurrence = (path: string, offset: number) => {
-    setEditingCellId(null);
+    closeCellEditor();
     setPendingLocation({ path, offset });
     if (path === "SKILL.md") {
+      setActiveDocumentPath(path);
+      return;
+    }
+    if (loadedExternalDocuments[path] || resolvedExternalDocuments[path]) {
       setActiveDocumentPath(path);
       return;
     }
@@ -611,10 +1005,33 @@ export function ProfileWorkflowGuide({
     );
     if (file) externalDocumentMutation.mutate(file);
   };
-  const openOutlineHeading = (offset: number) => {
-    setEditorMode("notebook");
-    setEditingCellId(null);
-    setPendingLocation({ path: activeDocumentPath, offset });
+  const returnToMainGuide = () => {
+    openOccurrence("SKILL.md", 0);
+  };
+  const saveAllDirty = async (
+    reclamationConfirmation?: WorkflowGuideReclamationConfirmation,
+  ) => {
+    for (const path of externalDirtyPaths) {
+      const document = resolvedExternalDocuments[path];
+      if (!document) continue;
+      try {
+        await saveExternalDocumentMutation.mutateAsync({
+          path,
+          markdown: document.markdown,
+          reclamationConfirmation,
+        });
+      } catch {
+        // Errors are surfaced by the mutation's onError handler;
+        // stop the sequential save so the failure stays visible.
+        return;
+      }
+    }
+    if (!rootDirty) return;
+    try {
+      await saveMutation.mutateAsync(reclamationConfirmation);
+    } catch {
+      // Errors are surfaced by the mutation's onError handler.
+    }
   };
   const confirmReclamation = () => {
     if (!pendingReclamation) return;
@@ -627,13 +1044,8 @@ export function ProfileWorkflowGuide({
         (capability) => capability.name,
       ),
     };
-    const target = pendingReclamation.target;
     setPendingReclamation(null);
-    if (target === "external") {
-      saveExternalDocumentMutation.mutate(confirmation);
-    } else {
-      saveMutation.mutate(confirmation);
-    }
+    void saveAllDirty(confirmation);
   };
 
   if (guideQuery.isLoading) {
@@ -655,645 +1067,736 @@ export function ProfileWorkflowGuide({
 
   return (
     <section
-      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
       aria-label={t("profiles:detail.workflow.guide.regionLabel", {
         defaultValue: "Workflow Guide",
       })}
     >
-      <header className="flex items-center justify-between border-b px-4 py-2">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("profiles:detail.workflow.guide.title", {
-              defaultValue: "Workflow Guide",
-            })}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {t("profiles:detail.workflow.guide.description", {
-              defaultValue:
-                "Write the Skill narrative and insert readable references where they are needed.",
-            })}
-          </p>
-        </div>
-        <Segment
-          className="w-48 shrink-0"
-          options={[
-            {
-              value: "notebook",
-              label: t("profiles:detail.workflow.guide.notebook", {
-                defaultValue: "Notebook",
-              }),
-              icon: <BookOpenText className="h-3.5 w-3.5" />,
-            },
-            {
-              value: "preview",
-              label: t("profiles:detail.workflow.guide.preview", {
-                defaultValue: "Preview",
-              }),
-              icon: <Eye className="h-3.5 w-3.5" />,
-            },
-          ]}
-          showDots={false}
-          value={editorMode}
-          onValueChange={(value) => {
-            setEditingCellId(null);
-            const nextMode = value as "notebook" | "preview";
-            setEditorMode(nextMode);
-            if (nextMode === "preview") previewMutation.mutate();
-          }}
-        />
-      </header>
       <ResizableSplitPane
         className="min-h-0 flex-1"
-        dividerAriaLabel={t("profiles:detail.workflow.guide.resizeOutlinePanel", {
-          defaultValue: "Resize outline panel",
+        dividerAriaLabel={t("profiles:detail.workflow.guide.resizeInspectorPanel", {
+          defaultValue: "Resize capabilities and materials panel",
         })}
         initialLeftWidth={280}
         minLeftWidth={208}
         maxLeftWidth={520}
         preferRightPanelSpace
       >
-        <nav
-          className="overflow-auto border-r p-3"
-          aria-label={t("profiles:detail.workflow.guide.outlineLabel", {
-            defaultValue: "Guide outline",
-          })}
-        >
-          <ol className="space-y-0.5 text-sm">
-            <li className="group">
-              <button
-                aria-label={t("profiles:detail.workflow.guide.openMainGuide", {
-                  defaultValue: "Open main Guide",
-                })}
-                className={cn(
-                  "flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                  activeDocumentPath === "SKILL.md" && "bg-muted",
-                )}
-                onClick={() => {
-                  setActiveDocumentPath("SKILL.md");
-                  setEditorMode("notebook");
-                  setEditingCellId(null);
-                }}
-                type="button"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {mainGuideTitle}
-                </span>
-                <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
-                  SKILL.md
-                </span>
-              </button>
-            </li>
-            {guide.headings.map((heading, index) => (
-              <li
-                className="relative"
-                key={`${heading.text}-${index}`}
-                style={{
-                  marginLeft: `${Math.max(0, heading.level - 1) * 0.9}rem`,
-                }}
-              >
-                {heading.level > 1 ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-y-0 left-0 border-l border-border"
-                  />
-                ) : null}
-                <button
-                  className="relative flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  onClick={() => openOutlineHeading(heading.offset)}
-                  type="button"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      heading.level === 1
-                        ? "bg-foreground/70"
-                        : "bg-muted-foreground/50",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    {heading.text}
-                  </span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                    H{heading.level}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {packageFiles
-              .filter(
-                (file) =>
-                  file.category === "reference" && file.extension === "md",
-              )
-              .map((file) => (
-                <li className="group" key={file.package_file_id}>
-                  <button
-                    className={cn(
-                      "flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                      activeDocumentPath === file.relative_path && "bg-muted",
-                    )}
-                    onClick={() => externalDocumentMutation.mutate(file)}
-                    type="button"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {file.title}
-                    </span>
-                    <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
-                      {t("profiles:detail.workflow.guide.reference", {
-                        defaultValue: "Reference",
-                      })}
-                    </span>
-                  </button>
-                </li>
-              ))}
-          </ol>
-        </nav>
-        <div className="flex min-w-0 min-h-0 flex-col">
-          <nav
-            aria-label={t("profiles:detail.workflow.guide.breadcrumbLabel", {
-              defaultValue: "Guide document breadcrumb",
+        <div className="flex min-h-0 flex-col">
+          <div className="shrink-0 p-3">
+            <BulkSelectionHeader
+              className="mb-0"
+              title={t("profiles:detail.workflow.guide.inspectorTitle", {
+                defaultValue: "Capabilities & Materials",
+              })}
+              description={t(
+                "profiles:detail.workflow.guide.inspectorDescription",
+                {
+                  defaultValue:
+                    "Capability and material references in this workflow guide.",
+                },
+              )}
+              showModeToggle={false}
+            />
+          </div>
+          <aside
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            aria-label={t("profiles:detail.workflow.guide.inspectorLabel", {
+              defaultValue: "Guide inspector",
             })}
-            className="flex h-9 shrink-0 items-center gap-1 border-b px-4 text-xs text-muted-foreground"
           >
-            <button
-              className="hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={() => {
-                setActiveDocumentPath("SKILL.md");
-                setEditorMode("notebook");
-                setEditingCellId(null);
-              }}
-              type="button"
-            >
-              SKILL.md
-            </button>
-            {activeExternalDocument ? (
-              <>
-                <ChevronRight className="h-3.5 w-3.5" />
-                <span className="truncate text-foreground">
-                  {activeExternalDocument.relative_path}
-                </span>
-              </>
-            ) : null}
-          </nav>
-          <div className="flex min-w-0 min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 overflow-auto p-4">
-                {editorMode === "preview" ? (
-                  <section
-                    aria-label={t("profiles:detail.workflow.guide.preview", {
-                      defaultValue: "Preview",
-                    })}
-                    className="rounded-md border bg-muted/20 p-4"
-                  >
-                    <p className="mb-3 text-xs text-muted-foreground">
-                      {t("profiles:detail.workflow.guide.previewDescription", {
-                        defaultValue:
-                          "Rendered from the current draft without saving.",
-                      })}
-                    </p>
-                    {previewMutation.isPending ? (
-                      <p className="text-sm text-muted-foreground">
-                        {t("common:loading", { defaultValue: "Loading..." })}
+            <CardListScrollBody className={PROFILE_EDITOR_SIDEBAR_SCROLL_CLASS}>
+              <div className="px-2 py-3.5">
+                <section>
+                  <h4 className="px-1.5 text-xs font-medium">
+                    {t("profiles:detail.workflow.guide.capabilities", {
+                      defaultValue: "Capabilities",
+                    })}{" "}
+                    ({capabilityOccurrences.size})
+                  </h4>
+                  <div className="mt-1 space-y-0.5">
+                    {[...capabilityOccurrences.entries()].map(
+                      ([name, occurrences]) => {
+                        const placeLabel = t(
+                          "profiles:detail.workflow.guide.place",
+                          { defaultValue: "Place" },
+                        );
+                        return (
+                          <div className={GUIDE_INSPECTOR_ROW_CLASS} key={name}>
+                            <div className="flex items-center gap-1.5">
+                              <p
+                                className="min-w-0 flex-1 truncate text-xs font-medium"
+                                title={name}
+                              >
+                                {name}
+                              </p>
+                              <span className="shrink-0 text-[10px] text-muted-foreground/70 transition-colors group-hover:text-muted-foreground">
+                                {occurrences.length}
+                              </span>
+                            </div>
+                            <div className="grid grid-rows-[0fr] overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-150 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
+                              <div className="min-h-0">
+                                <div className="pt-1.5">
+                                  {occurrences.map((occurrence, index) => {
+                                    const label = guidePlaceAriaLabel(
+                                      index,
+                                      occurrence.path,
+                                      placeLabel,
+                                    );
+                                    return (
+                                      <button
+                                        className={GUIDE_INSPECTOR_NAV_NESTED_CLASS}
+                                        key={`${occurrence.path}-${occurrence.offset}`}
+                                        onClick={() =>
+                                          openOccurrence(
+                                            occurrence.path,
+                                            occurrence.offset,
+                                          )
+                                        }
+                                        style={guideNavInspectorIndent()}
+                                        title={label}
+                                        type="button"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0 opacity-50" />
+                                        <span className="min-w-0 flex-1 truncate">
+                                          {occurrence.path}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      },
+                    )}
+                    {capabilityOccurrences.size === 0 ? (
+                      <p className="px-1.5 py-1 text-xs text-muted-foreground">
+                        {t("profiles:detail.workflow.guide.noCapabilities", {
+                          defaultValue: "No capability references yet.",
+                        })}
                       </p>
                     ) : null}
-                    {previewMutation.data ? (
-                      <SkillPreview
-                        content={
-                          activeExternalDocument
-                            ? previewMutation.data.active_document.markdown
-                            : previewMutation.data.projected_skill.markdown
-                        }
-                      />
+                  </div>
+                </section>
+                <section className="mt-4">
+                  <h4 className="px-1.5 text-xs font-medium">
+                    {t("profiles:detail.workflow.guide.materials", {
+                      defaultValue: "Materials",
+                    })}{" "}
+                    ({materialOccurrences.size})
+                  </h4>
+                  <div className="mt-1 space-y-0.5">
+                    {[...materialOccurrences.entries()].map(
+                      ([path, occurrences]) => {
+                        const file = packageFiles.find(
+                          (candidate) => candidate.relative_path === path,
+                        );
+                        const isReferenceMarkdown =
+                          file?.category === "reference" &&
+                          file.extension === "md";
+                        const materialTitle = file?.title ?? path;
+                        const placeLabel = t(
+                          "profiles:detail.workflow.guide.place",
+                          { defaultValue: "Place" },
+                        );
+                        return (
+                          <div className={GUIDE_INSPECTOR_ROW_CLASS} key={path}>
+                            <div className="flex items-center gap-1.5">
+                              {isReferenceMarkdown ? (
+                                <button
+                                  className="min-w-0 flex-1 truncate text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                                  onClick={() => openOccurrence(path, 0)}
+                                  title={materialTitle}
+                                  type="button"
+                                >
+                                  {file.title}
+                                </button>
+                              ) : (
+                                <p
+                                  className="min-w-0 flex-1 truncate text-xs font-medium"
+                                  title={materialTitle}
+                                >
+                                  {materialTitle}
+                                </p>
+                              )}
+                              <span className="shrink-0 text-[10px] text-muted-foreground/70 transition-colors group-hover:text-muted-foreground">
+                                {occurrences.length}
+                              </span>
+                            </div>
+                            <div className="grid grid-rows-[0fr] overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-150 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
+                              <div className="min-h-0">
+                                <div className="pt-1.5">
+                                  {occurrences.map((occurrence, index) => {
+                                    const label = guidePlaceAriaLabel(
+                                      index,
+                                      occurrence.path,
+                                      placeLabel,
+                                    );
+                                    return (
+                                      <button
+                                        className={GUIDE_INSPECTOR_NAV_NESTED_CLASS}
+                                        key={`${occurrence.path}-${occurrence.offset}`}
+                                        onClick={() =>
+                                          openOccurrence(
+                                            occurrence.path,
+                                            occurrence.offset,
+                                          )
+                                        }
+                                        style={guideNavInspectorIndent()}
+                                        title={label}
+                                        type="button"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0 opacity-50" />
+                                        <span className="min-w-0 flex-1 truncate">
+                                          {occurrence.path}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      },
+                    )}
+                    {materialOccurrences.size === 0 ? (
+                      <p className="px-1.5 py-1 text-xs text-muted-foreground">
+                        {t("profiles:detail.workflow.guide.noMaterials", {
+                          defaultValue: "No material references yet.",
+                        })}
+                      </p>
                     ) : null}
-                  </section>
-                ) : (
+                  </div>
+                </section>
+              </div>
+            </CardListScrollBody>
+          </aside>
+        </div>
+        <div className="flex min-w-0 min-h-0 flex-col">
+          <div className="shrink-0 p-3">
+            <BulkSelectionHeader
+              className="mb-0"
+              leading={
+                activeExternalDocument ? (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Button
+                      className="h-8 shrink-0 px-2"
+                      onClick={returnToMainGuide}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      {t("profiles:detail.workflow.guide.backToMainGuide", {
+                        defaultValue: "Back",
+                      })}
+                    </Button>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {activeExternalDocument.title}
+                      </div>
+                      <div
+                        className="truncate text-xs text-slate-500 dark:text-slate-400"
+                        title={t("profiles:detail.workflow.guide.description", {
+                          defaultValue:
+                            "Write the Skill narrative and insert readable references where they are needed.",
+                        })}
+                      >
+                        {t("profiles:detail.workflow.guide.description", {
+                          defaultValue:
+                            "Write the Skill narrative and insert readable references where they are needed.",
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : undefined
+              }
+              title={
+                activeExternalDocument
+                  ? undefined
+                  : t("profiles:detail.workflow.guide.title", {
+                    defaultValue: "Workflow Guide",
+                  })
+              }
+              description={
+                activeExternalDocument
+                  ? undefined
+                  : t("profiles:detail.workflow.guide.description", {
+                    defaultValue:
+                      "Write the Skill narrative and insert readable references where they are needed.",
+                  })
+              }
+              showModeToggle={false}
+              trailing={
+                <TooltipProvider delayDuration={200}>
+                  <div className="inline-flex overflow-hidden rounded-md border border-input">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant={editorMode === "notebook" ? "default" : "ghost"}
+                          size="icon"
+                          className="h-8 w-8 rounded-none border-0 shadow-none"
+                          aria-label={t("profiles:detail.workflow.guide.notebook", {
+                            defaultValue: "Notebook",
+                          })}
+                          aria-pressed={editorMode === "notebook"}
+                          onClick={() => {
+                            closeCellEditor();
+                            setEditorMode("notebook");
+                          }}
+                        >
+                          <BookOpenText className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {t("profiles:detail.workflow.guide.notebook", {
+                          defaultValue: "Notebook",
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant={editorMode === "preview" ? "default" : "ghost"}
+                          size="icon"
+                          className="h-8 w-8 rounded-none border-0 shadow-none"
+                          aria-label={t("profiles:detail.workflow.guide.preview", {
+                            defaultValue: "Preview",
+                          })}
+                          aria-pressed={editorMode === "preview"}
+                          onClick={() => {
+                            closeCellEditor();
+                            setEditorMode("preview");
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {t("profiles:detail.workflow.guide.previewDescription", {
+                          defaultValue:
+                            "Rendered from the current draft without saving.",
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          data-guide-outline-toggle
+                          variant={outlineOpen ? "default" : "ghost"}
+                          size="icon"
+                          className="h-8 w-8 rounded-none border-0 shadow-none"
+                          aria-label={
+                            outlineOpen
+                              ? t("profiles:detail.workflow.guide.hideOutline", {
+                                defaultValue: "Hide outline",
+                              })
+                              : t("profiles:detail.workflow.guide.showOutline", {
+                                defaultValue: "Show outline",
+                              })
+                          }
+                          aria-pressed={outlineOpen}
+                          onClick={() => setOutlineOpen((current) => !current)}
+                        >
+                          <PanelRight className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {outlineOpen
+                          ? t("profiles:detail.workflow.guide.hideOutline", {
+                            defaultValue: "Hide outline",
+                          })
+                          : t("profiles:detail.workflow.guide.showOutline", {
+                            defaultValue: "Show outline",
+                          })}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </TooltipProvider>
+              }
+            />
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <CardListScrollBody
+              className={PROFILE_EDITOR_SIDEBAR_SCROLL_CLASS}
+              scrollLocked={outlineOpen}
+            >
+              {(() => {
+                const documentPane = (
                   <div
-                    className="space-y-0"
-                    aria-label={t(
-                      "profiles:detail.workflow.guide.notebookRegion",
-                      { defaultValue: "Workflow Guide notebook" },
+                    className={cn(
+                      "min-w-0",
+                      outlineOpen &&
+                      "min-h-0 overflow-y-auto overscroll-contain",
                     )}
                   >
-                    <GuideBoundaryInsert
-                      capabilities={capabilities}
-                      capabilitiesLoading={capabilitiesLoading}
-                      files={packageFiles}
-                      onInsert={insert}
-                      onInsertCapability={insertCapability}
-                      onCreateExternalDocument={(title) =>
-                        createExternalDocumentMutation
-                          .mutateAsync(title)
-                          .then(() => undefined)
-                      }
-                      creatingExternalDocument={
-                        createExternalDocumentMutation.isPending
-                      }
-                      onCreatePackageFile={(draft) =>
-                        packageFileMutation.mutateAsync(draft).then(() => undefined)
-                      }
-                      creatingPackageFile={packageFileMutation.isPending}
-                      onSetInsertionPoint={(offset) => {
-                        selectionRef.current = { start: offset, end: offset };
-                      }}
-                      offset={0}
-                    />
-                    {documentCells.map((cell) => (
-                      <div key={cell.id}>
-                        <article
-                          className={cn(
-                            "group relative rounded-sm px-3 py-2 transition-colors hover:bg-muted/20 focus-within:bg-muted/20",
-                            editingCellId === cell.id && "bg-muted/20",
-                          )}
-                          id={`guide-cell-${cell.id}`}
-                        >
-                          <header className="absolute right-2 top-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                            <span className="text-[10px] text-muted-foreground">
-                              {cell.kind === "capability"
-                                ? t(
-                                    "profiles:detail.workflow.guide.capability",
-                                    { defaultValue: "Capability" },
-                                  )
-                                : cell.kind === "external_reference"
-                                  ? t(
-                                      "profiles:detail.workflow.guide.externalReference",
-                                      { defaultValue: "External Markdown" },
-                                    )
-                                  : t(
-                                      "profiles:detail.workflow.guide.markdownBlock",
-                                      { defaultValue: "Markdown" },
-                                    )}
-                            </span>
-                            <Button
-                              aria-label={
-                                editingCellId === cell.id
-                                  ? t("common:done", { defaultValue: "Done" })
-                                  : t(
-                                      "profiles:detail.workflow.guide.editBlock",
-                                      { defaultValue: "Edit block" },
-                                    )
+                    {editorMode === "preview" ? (
+                      <section
+                        aria-label={t("profiles:detail.workflow.guide.preview", {
+                          defaultValue: "Preview",
+                        })}
+                        className="p-2"
+                      >
+                        <div className="px-1.5 py-1">
+                          {previewMutation.isPending ? (
+                            <p className="text-sm text-muted-foreground">
+                              {t("common:loading", { defaultValue: "Loading..." })}
+                            </p>
+                          ) : null}
+                          {previewMutation.data ? (
+                            <SkillPreview
+                              content={
+                                activeExternalDocument
+                                  ? previewMutation.data.active_document.markdown
+                                  : previewMutation.data.projected_skill.markdown
                               }
-                              size="icon"
-                              variant="ghost"
-                              onClick={() =>
-                                editingCellId === cell.id
-                                  ? setEditingCellId(null)
-                                  : beginCellEdit(cell)
-                              }
-                            >
-                              {editingCellId === cell.id ? (
-                                <Check className="h-3.5 w-3.5" />
-                              ) : (
-                                <Pencil className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
-                          </header>
-                          <div className="min-w-0 pr-8">
-                            {editingCellId === cell.id &&
-                            cell.kind === "capability" &&
-                            cell.capability ? (
-                              <div className="space-y-3">
-                                <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
-                                  <p className="text-xs font-medium text-muted-foreground">
-                                    {t(
-                                      "profiles:detail.workflow.guide.capabilityName",
-                                      { defaultValue: "Capability name" },
-                                    )}
-                                  </p>
-                                  <code className="truncate font-mono text-xs">
-                                    {cell.capability.name}
-                                  </code>
-                                </div>
-                                <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-                                  {t(
-                                    "profiles:detail.workflow.guide.exposure",
-                                    { defaultValue: "Exposure" },
-                                  )}
-                                  <select
-                                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                                    value={cell.capability.exposure}
-                                    onChange={(event) =>
-                                      updateCapability(
-                                        cell,
-                                        cell.capability!.name,
-                                        event.target.value as
-                                          | "direct"
-                                          | "meta_on_demand",
-                                        cell.capability!.guide,
-                                      )
-                                    }
-                                  >
-                                    <option value="meta_on_demand">
-                                      {t(
-                                        "profiles:detail.workflow.guide.metaOnDemand",
-                                        { defaultValue: "Meta on demand" },
-                                      )}
-                                    </option>
-                                    <option value="direct">
-                                      {t("profiles:detail.workflow.guide.direct", {
-                                        defaultValue: "Direct",
-                                      })}
-                                    </option>
-                                  </select>
-                                </label>
-                                <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-                                  {t(
-                                    "profiles:detail.workflow.guide.capabilityGuide",
-                                    { defaultValue: "Guide" },
-                                  )}
-                                  <Textarea
-                                    autoFocus
-                                    ref={editorRef}
-                                    aria-label={t(
-                                      "profiles:detail.workflow.guide.capabilityGuide",
-                                      { defaultValue: "Capability guide" },
-                                    )}
-                                    className="min-h-36 resize-y font-mono text-sm"
-                                    value={cell.capability.guide}
-                                    onChange={(event) => {
-                                      trackSelection(event, cell.startOffset);
-                                      updateCapability(
-                                        cell,
-                                        cell.capability!.name,
-                                        cell.capability!.exposure,
-                                        event.target.value,
-                                      );
-                                    }}
-                                    onSelect={(event) =>
-                                      trackSelection(event, cell.startOffset)
-                                    }
-                                  />
-                                </label>
-                              </div>
-                            ) : editingCellId === cell.id ? (
-                              <Textarea
-                                autoFocus
-                                ref={editorRef}
-                                aria-label={t(
-                                  "profiles:detail.workflow.guide.markdownSource",
-                                  { defaultValue: "Markdown block source" },
+                            />
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : (
+                      <div
+                        className="space-y-0 p-2"
+                        aria-label={t(
+                          "profiles:detail.workflow.guide.notebookRegion",
+                          { defaultValue: "Workflow Guide notebook" },
+                        )}
+                      >
+                        {documentCells.map((cell, cellIndex) => {
+                          const insertComposerOpen = insertComposerOffset !== null;
+                          // Cells inside the session range are already being
+                          // edited as raw text, so only the form renders.
+                          const hiddenByEditSession =
+                            editSession !== null &&
+                            cell.startOffset < editSession.end &&
+                            cell.endOffset > editSession.start;
+                          if (
+                            editAnchor?.mode === "replace" &&
+                            editAnchor.index === cellIndex
+                          ) {
+                            return <div key={cell.id}>{markdownEditForm}</div>;
+                          }
+                          const anchorsEditFormBefore =
+                            editAnchor?.mode === "before" &&
+                            editAnchor.index === cellIndex;
+                          if (hiddenByEditSession) {
+                            // Typing can promote part of the session range into
+                            // a heading cell; render the form in its slot rather
+                            // than beside a duplicate of the live text.
+                            return anchorsEditFormBefore ? (
+                              <div key={cell.id}>{markdownEditForm}</div>
+                            ) : null;
+                          }
+                          // Cell ids are offset-derived, so a neighbour can
+                          // inherit the id of a cell the session just emptied.
+                          // Markdown editing renders through `editAnchor`;
+                          // only non-markdown cells edit inline by id.
+                          const editsInline =
+                            editSession === null && editingCellId === cell.id;
+                          return (
+                            <div key={cell.id}>
+                              {anchorsEditFormBefore ? markdownEditForm : null}
+                              <article
+                                className={cn(
+                                  "group relative transition-colors",
+                                  insertComposerOpen && "pointer-events-none",
+                                  editsInline
+                                    ? "-mx-2"
+                                    : insertComposerOpen
+                                      ? "rounded-md px-1.5 py-1"
+                                      : "rounded-md px-1.5 py-1 hover:bg-muted focus-within:bg-muted",
                                 )}
-                                className="min-h-36 resize-y font-mono text-sm"
-                                value={cell.source}
-                                onChange={(event) => {
-                                  trackSelection(event, cell.startOffset);
-                                  updateCell(cell, event.target.value);
-                                }}
-                                onSelect={(event) =>
-                                  trackSelection(event, cell.startOffset)
-                                }
-                              />
-                            ) : cell.kind === "capability" && cell.capability ? (
-                              <GuideMarkdownPreview
-                                content={`**Capability: ${cell.capability.name}**  \nExposure: ${cell.capability.exposure === "direct" ? "Direct" : "Meta on demand"}${cell.capability.guide ? `\n\n${cell.capability.guide}` : ""}`}
-                              />
-                            ) : cell.kind === "external_reference" &&
-                              cell.externalReference ? (
-                              <button
-                                className="text-left text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                onClick={() => {
-                                  const file = packageFiles.find(
-                                    (candidate) =>
-                                      candidate.relative_path ===
-                                      cell.externalReference!.relativePath,
-                                  );
-                                  if (file)
-                                    externalDocumentMutation.mutate(file);
-                                }}
-                                type="button"
+                                id={`guide-cell-${cell.id}`}
                               >
-                                {cell.externalReference.title}
-                              </button>
-                            ) : (
-                              <GuideMarkdownPreview
-                                content={cell.source}
-                                emptyLabel={t(
-                                  "profiles:detail.workflow.guide.emptyMarkdownBlock",
-                                  { defaultValue: "Empty Markdown block" },
+                                {insertComposerOpen || editsInline ? null : (
+                                  <header className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                    <span className="text-[10px] leading-none text-muted-foreground">
+                                      {cell.kind === "capability"
+                                        ? t(
+                                          "profiles:detail.workflow.guide.capability",
+                                          { defaultValue: "Capability" },
+                                        )
+                                        : cell.kind === "external_reference"
+                                          ? t(
+                                            "profiles:detail.workflow.guide.externalReference",
+                                            { defaultValue: "External Markdown" },
+                                          )
+                                          : t(
+                                            "profiles:detail.workflow.guide.markdownBlock",
+                                            { defaultValue: "Markdown" },
+                                          )}
+                                    </span>
+                                    <Button
+                                      aria-label={t(
+                                        "profiles:detail.workflow.guide.editBlock",
+                                        { defaultValue: "Edit block" },
+                                      )}
+                                      className={cn("h-6 w-6", GUIDE_ICON_BUTTON_CLASS)}
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => beginCellEdit(cell)}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </header>
                                 )}
-                              />
-                            )}
-                          </div>
-                        </article>
-                        <GuideBoundaryInsert
-                          capabilities={capabilities}
-                          capabilitiesLoading={capabilitiesLoading}
-                          files={packageFiles}
-                          onInsert={insert}
-                          onInsertCapability={insertCapability}
-                          onCreateExternalDocument={(title) =>
-                            createExternalDocumentMutation
-                              .mutateAsync(title)
-                              .then(() => undefined)
-                          }
-                          creatingExternalDocument={
-                            createExternalDocumentMutation.isPending
-                          }
-                          onCreatePackageFile={(draft) =>
-                            packageFileMutation
-                              .mutateAsync(draft)
-                              .then(() => undefined)
-                          }
-                          creatingPackageFile={packageFileMutation.isPending}
-                          onSetInsertionPoint={(offset) => {
-                            selectionRef.current = {
-                              start: offset,
-                              end: offset,
-                            };
-                          }}
-                          offset={cell.endOffset}
-                        />
+                                <div className="min-w-0">
+                                  {editsInline &&
+                                    cell.kind === "external_reference" &&
+                                    cell.externalReference ? (
+                                    <GuideExternalReferenceEditForm
+                                      cell={cell}
+                                      onDelete={() => setPendingCellDelete(cell)}
+                                      onDone={closeCellEditor}
+                                      onOpenDocument={() => {
+                                        const file = packageFiles.find(
+                                          (candidate) =>
+                                            candidate.relative_path ===
+                                            cell.externalReference!.relativePath,
+                                        );
+                                        if (file) externalDocumentMutation.mutate(file);
+                                      }}
+                                      onUpdate={updateExternalReference}
+                                    />
+                                  ) : editsInline &&
+                                    cell.kind === "capability" &&
+                                    cell.capability ? (
+                                    <GuideCapabilityEditForm
+                                      capabilities={capabilities}
+                                      capabilitiesLoading={capabilitiesLoading}
+                                      cell={cell}
+                                      editorRef={editorRef}
+                                      onDelete={() => setPendingCellDelete(cell)}
+                                      onDone={closeCellEditor}
+                                      onUpdate={updateCapability}
+                                    />
+                                  ) : (
+                                    <GuideWorkflowCellBrowse
+                                      capabilities={capabilities}
+                                      cell={cell}
+                                      onOpenExternalDocument={(relativePath) => {
+                                        const file = packageFiles.find(
+                                          (candidate) =>
+                                            candidate.relative_path === relativePath,
+                                        );
+                                        if (file) externalDocumentMutation.mutate(file);
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </article>
+                              <GuideBoundaryInsert
+                                  capabilities={capabilities}
+                                  capabilitiesLoading={capabilitiesLoading}
+                                  files={packageFiles}
+                                  expanded={insertComposerOffset === cell.endOffset}
+                                  hoverEnabled={
+                                    !insertComposerOpen && editSession === null
+                                  }
+                                  onExpandedChange={(nextExpanded) => {
+                                    if (nextExpanded) {
+                                      closeCellEditor();
+                                      setInsertComposerOffset(cell.endOffset);
+                                      return;
+                                    }
+                                    insertEpochRef.current += 1;
+                                    setInsertComposerOffset(null);
+                                  }}
+                                  onInsert={insert}
+                                  onInsertInPlaceMarkdown={insertInPlaceMarkdownAt}
+                                  onInsertCapability={insertCapability}
+                                  onCreateExternalDocument={async (title) => {
+                                    const epoch = insertEpochRef.current;
+                                    const { document } =
+                                      await createExternalDocumentMutation.mutateAsync(
+                                        title,
+                                      );
+                                    if (epoch !== insertEpochRef.current) return;
+                                    insert(
+                                      externalReferenceSource(
+                                        document.title,
+                                        document.relative_path,
+                                      ),
+                                    );
+                                    setActiveDocumentPath(document.relative_path);
+                                    setEditorMode("notebook");
+                                    closeCellEditor();
+                                    notifySuccess(
+                                      t(
+                                        "profiles:detail.workflow.guide.documentCreated",
+                                        {
+                                          defaultValue:
+                                            "External Markdown document created",
+                                        },
+                                      ),
+                                    );
+                                  }}
+                                  creatingExternalDocument={
+                                    createExternalDocumentMutation.isPending
+                                  }
+                                  onCreatePackageFile={async (draft) => {
+                                    const epoch = insertEpochRef.current;
+                                    const saved =
+                                      await packageFileMutation.mutateAsync(draft);
+                                    if (epoch !== insertEpochRef.current) return;
+                                    const file = saved.package_file;
+                                    insert(`[${file.title}](${file.relative_path})`);
+                                    notifySuccess(
+                                      t("profiles:detail.workflow.guide.fileSaved", {
+                                        defaultValue: "Package file saved",
+                                      }),
+                                    );
+                                  }}
+                                  creatingPackageFile={packageFileMutation.isPending}
+                                  onSetInsertionPoint={(nextOffset) => {
+                                    selectionRef.current = {
+                                      start: nextOffset,
+                                      end: nextOffset,
+                                    };
+                                  }}
+                                  offset={cell.endOffset}
+                                />
+                            </div>
+                          );
+                        })}
+                        {editAnchor?.mode === "append" ? markdownEditForm : null}
                       </div>
+                    )}
+                    {guide.errors.map((error) => (
+                      <p className="p-2 text-sm text-destructive" key={error}>
+                        {error}
+                      </p>
                     ))}
                   </div>
-                )}
-                {guide.errors.map((error) => (
-                  <p className="text-sm text-destructive" key={error}>
-                    {error}
-                  </p>
-                ))}
-              </div>
-            </div>
-            <aside
-              className="w-64 shrink-0 overflow-auto border-l px-3 py-3"
-              aria-label={t("profiles:detail.workflow.guide.inspectorLabel", {
-                defaultValue: "Guide inspector",
-              })}
-            >
-              <section>
-                <h4 className="px-1.5 text-xs font-medium">
-                  {t("profiles:detail.workflow.guide.capabilities", {
-                    defaultValue: "Capabilities",
-                  })}{" "}
-                  ({capabilityOccurrences.size})
-                </h4>
-                <div className="mt-1 space-y-0.5">
-                  {[...capabilityOccurrences.entries()].map(
-                    ([name, occurrences]) => {
-                      const description = capabilities.find(
-                        (capability) => capability.label === name,
-                      )?.description;
-                      return (
-                        <div
-                          className="group rounded-sm px-1.5 py-1 hover:bg-muted focus-within:bg-muted"
-                          key={name}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <p className="min-w-0 flex-1 truncate text-xs font-medium">
-                              {name}
-                            </p>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                              {occurrences.length}
-                            </span>
-                          </div>
-                          <div className="grid grid-rows-[0fr] overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-150 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
-                            <div className="min-h-0">
-                              <div className="space-y-1 pt-1.5">
-                                {description ? (
-                                  <p className="line-clamp-2 text-[11px] text-muted-foreground">
-                                    {description}
-                                  </p>
-                                ) : null}
-                                <p className="text-[11px] text-muted-foreground">
-                                  {effectiveExposure(occurrences) === "direct"
-                                    ? t(
-                                        "profiles:detail.workflow.guide.directExposure",
-                                        { defaultValue: "Direct exposure" },
+                );
+                if (!outlineOpen) return documentPane;
+                return (
+                  <ResizableSplitPane
+                    trailingFixed
+                    className="h-full"
+                    dividerAriaLabel={t(
+                      "profiles:detail.workflow.guide.resizeOutlinePanel",
+                      { defaultValue: "Resize guide outline panel" },
+                    )}
+                    initialTrailingWidth={224}
+                    maxTrailingWidth={400}
+                    minTrailingWidth={160}
+                  >
+                    {documentPane}
+                    <nav
+                      className="min-h-0 overflow-y-auto overscroll-contain pb-3"
+                      data-guide-outline
+                      aria-label={t("profiles:detail.workflow.guide.outlineLabel", {
+                        defaultValue: "Guide outline",
+                      })}
+                    >
+                      <ol className="list-none text-sm">
+                        {outlineSections.map((section) => {
+                          const sectionBadge =
+                            section.badge === "SKILL.md"
+                              ? section.badge
+                              : t("profiles:detail.workflow.guide.reference", {
+                                defaultValue: "Reference",
+                              });
+                          const sectionTitle = `${section.title} · ${sectionBadge}`;
+                          return (
+                            <li key={section.path}>
+                              <div>
+                                <button
+                                  aria-label={
+                                    section.path === "SKILL.md"
+                                      ? t(
+                                        "profiles:detail.workflow.guide.openMainGuide",
+                                        { defaultValue: "Open main Guide" },
                                       )
-                                    : t(
-                                        "profiles:detail.workflow.guide.metaOnDemand",
-                                        { defaultValue: "Meta on demand" },
-                                      )}
-                                </p>
-                                <div className="flex flex-wrap gap-1">
-                                  {occurrences.map((occurrence, index) => (
-                                    <Button
-                                      className="h-6 px-1.5 text-[11px]"
-                                      key={`${occurrence.path}-${occurrence.offset}`}
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() =>
-                                        openOccurrence(
-                                          occurrence.path,
-                                          occurrence.offset,
-                                        )
-                                      }
-                                    >
-                                      {t(
-                                        "profiles:detail.workflow.guide.place",
-                                        { defaultValue: "Place" },
-                                      )}{" "}
-                                      {index + 1} · {occurrence.path}
-                                    </Button>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    },
-                  )}
-                  {capabilityOccurrences.size === 0 ? (
-                    <p className="px-1.5 py-1 text-xs text-muted-foreground">
-                      {t("profiles:detail.workflow.guide.noCapabilities", {
-                        defaultValue: "No capability references yet.",
-                      })}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-              <section className="mt-4">
-                <h4 className="px-1.5 text-xs font-medium">
-                  {t("profiles:detail.workflow.guide.materials", {
-                    defaultValue: "Materials",
-                  })}{" "}
-                  ({materialOccurrences.size})
-                </h4>
-                <div className="mt-1 space-y-0.5">
-                  {[...materialOccurrences.entries()].map(
-                    ([path, occurrences]) => {
-                      const file = packageFiles.find(
-                        (candidate) => candidate.relative_path === path,
-                      );
-                      return (
-                        <div
-                          className="group rounded-sm px-1.5 py-1 hover:bg-muted focus-within:bg-muted"
-                          key={path}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <p className="min-w-0 flex-1 truncate text-xs font-medium">
-                              {file?.title ?? path}
-                            </p>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                              {occurrences.length}
-                            </span>
-                          </div>
-                          <div className="grid grid-rows-[0fr] overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-150 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
-                            <div className="min-h-0">
-                              <div className="space-y-1 pt-1.5">
-                                {file ? (
-                                  <p className="break-all text-[11px] text-muted-foreground">
-                                    {file.category} · {file.relative_path}
-                                  </p>
-                                ) : null}
-                                <div className="flex flex-wrap gap-1">
-                                  {occurrences.map((occurrence, index) => (
-                                    <Button
-                                      className="h-6 px-1.5 text-[11px]"
-                                      key={`${occurrence.path}-${occurrence.offset}`}
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() =>
-                                        openOccurrence(
-                                          occurrence.path,
-                                          occurrence.offset,
-                                        )
-                                      }
-                                    >
-                                      {t(
-                                        "profiles:detail.workflow.guide.place",
-                                        { defaultValue: "Place" },
-                                      )}{" "}
-                                      {index + 1} · {occurrence.path}
-                                    </Button>
-                                  ))}
-                                </div>
-                                {file?.category === "reference" &&
-                                file.extension === "md" ? (
-                                  <Button
-                                    className="h-6 px-1.5 text-[11px]"
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() =>
-                                      externalDocumentMutation.mutate(file)
-                                    }
+                                      : t(
+                                        "profiles:detail.workflow.guide.openDocument",
+                                        { defaultValue: "Open document" },
+                                      )
+                                  }
+                                  className={cn(
+                                    GUIDE_NAV_DOCUMENT_CLASS,
+                                    "text-sm",
+                                    activeDocumentPath === section.path && "bg-muted",
+                                  )}
+                                  onClick={() => openOccurrence(section.path, 0)}
+                                  title={sectionTitle}
+                                  type="button"
+                                >
+                                  <span
+                                    className="min-w-0 flex-1 truncate"
+                                    title={section.title}
                                   >
-                                    {t(
-                                      "profiles:detail.workflow.guide.openDocument",
-                                      { defaultValue: "Open document" },
-                                    )}
-                                  </Button>
+                                    {section.title}
+                                  </span>
+                                  <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
+                                    {sectionBadge}
+                                  </span>
+                                </button>
+                                {section.headings.length > 0 ? (
+                                  <ol className="list-none">
+                                    {section.headings.map((heading, index) => (
+                                      <li key={`${section.path}-${heading.text}-${index}`}>
+                                        <button
+                                          className={cn(
+                                            GUIDE_NAV_NESTED_CLASS,
+                                            "text-sm",
+                                          )}
+                                          onClick={() =>
+                                            openOccurrence(section.path, heading.offset)
+                                          }
+                                          style={guideNavOutlineIndent(
+                                            outlineHeadingDepth(
+                                              section.headings,
+                                              heading,
+                                            ),
+                                          )}
+                                          title={`${heading.text} · H${heading.level}`}
+                                          type="button"
+                                        >
+                                          <span
+                                            aria-hidden="true"
+                                            className={cn(
+                                              "h-1.5 w-1.5 shrink-0 rounded-full",
+                                              heading.level === 1
+                                                ? "bg-foreground/70"
+                                                : "bg-muted-foreground/50",
+                                            )}
+                                          />
+                                          <span
+                                            className="min-w-0 flex-1 truncate"
+                                            title={heading.text}
+                                          >
+                                            {heading.text}
+                                          </span>
+                                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                                            H{heading.level}
+                                          </span>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ol>
                                 ) : null}
                               </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    },
-                  )}
-                  {materialOccurrences.size === 0 ? (
-                    <p className="px-1.5 py-1 text-xs text-muted-foreground">
-                      {t("profiles:detail.workflow.guide.noMaterials", {
-                        defaultValue: "No material references yet.",
-                      })}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-            </aside>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </nav>
+                  </ResizableSplitPane>
+                );
+              })()}
+            </CardListScrollBody>
           </div>
-          <footer className="flex shrink-0 items-center justify-between border-t px-4 py-3">
+          <footer className="mx-3 mb-3 flex shrink-0 items-center justify-between">
             <Button
+              className={GUIDE_ACTION_BUTTON_CLASS}
               size="sm"
               variant="ghost"
               onClick={() => repairMutation.mutate()}
@@ -1305,16 +1808,14 @@ export function ProfileWorkflowGuide({
               })}
             </Button>
             <Button
+              className={GUIDE_ACTION_BUTTON_CLASS}
               size="sm"
-              onClick={() =>
-                activeExternalDocument
-                  ? saveExternalDocumentMutation.mutate()
-                  : saveMutation.mutate()
-              }
+              onClick={() => void saveAllDirty()}
               disabled={
+                !hasDirtyChanges ||
                 saveMutation.isPending ||
                 saveExternalDocumentMutation.isPending ||
-                guide.errors.length > 0
+                hasBlockingGuideErrors
               }
             >
               <Save className="mr-1 h-3.5 w-3.5" />
@@ -1387,446 +1888,416 @@ export function ProfileWorkflowGuide({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog
+        open={pendingCellDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCellDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("profiles:detail.workflow.guide.deleteCellTitle", {
+                defaultValue: "Delete this block?",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("profiles:detail.workflow.guide.deleteCellDescription", {
+                defaultValue:
+                  "This removes the selected block from the Guide. Save the Guide to apply the change to the projected Skill.",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("common:cancel", { defaultValue: "Cancel" })}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingCellDelete) deleteCell(pendingCellDelete);
+                setPendingCellDelete(null);
+              }}
+            >
+              {t("profiles:detail.workflow.guide.deleteCell", {
+                defaultValue: "Delete block",
+              })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
 
-function GuideBoundaryInsert({
-  capabilities,
-  capabilitiesLoading,
-  files,
-  offset,
-  onInsert,
-  onInsertCapability,
-  onCreateExternalDocument,
-  creatingExternalDocument,
-  onCreatePackageFile,
-  creatingPackageFile,
-  onSetInsertionPoint,
-}: {
-  capabilities: WorkflowCapabilityOption[];
-  capabilitiesLoading: boolean;
-  files: WorkflowGuidePackageFile[];
-  offset: number;
-  onInsert: (value: string) => void;
-  onInsertCapability: (
-    capability: WorkflowCapabilityOption,
-    exposure: "direct" | "meta_on_demand",
-    guide: string,
-  ) => void;
-  onCreateExternalDocument: (title: string) => Promise<void>;
-  creatingExternalDocument: boolean;
-  onCreatePackageFile: (draft: {
-    title: string;
-    category: WorkflowGuidePackageCategory;
-    file: File;
-  }) => Promise<void>;
-  creatingPackageFile: boolean;
-  onSetInsertionPoint: (offset: number) => void;
-}) {
-  const { t } = useTranslation(["profiles", "common"]);
-  const [open, setOpen] = useState(false);
-  const [activeInsert, setActiveInsert] = useState<
-    | "external_markdown"
-    | "reference"
-    | "capability"
-    | "script"
-    | "asset"
-    | null
-  >(null);
-  const [externalDocumentTitle, setExternalDocumentTitle] = useState("");
-  const [packageTitle, setPackageTitle] = useState("");
-  const [packageUpload, setPackageUpload] = useState<File | null>(null);
-  const [selectedCapability, setSelectedCapability] =
-    useState<WorkflowCapabilityOption | null>(null);
-  const [bindingPolicy, setBindingPolicy] = useState<
-    "direct" | "meta_on_demand"
-  >("meta_on_demand");
-  const [capabilityGuide, setCapabilityGuide] = useState("");
-  const packageCategory = packageCategoryForInsert(activeInsert);
-  const visibleFiles = files.filter(
-    (file) =>
-      file.category === packageCategory &&
-      !(packageCategory === "reference" && file.extension === "md"),
-  );
-  const resetInsert = () => {
-    setActiveInsert(null);
-    setExternalDocumentTitle("");
-    setPackageTitle("");
-    setPackageUpload(null);
-    setSelectedCapability(null);
-    setBindingPolicy("meta_on_demand");
-    setCapabilityGuide("");
-  };
-  const closeInsert = () => {
-    setOpen(false);
-    resetInsert();
-  };
+const GUIDE_MARKDOWN_EDITOR_MIN_ROWS = 5;
 
+function guideMarkdownEditorMinHeight(editor: HTMLTextAreaElement) {
+  const styles = window.getComputedStyle(editor);
+  const fontSize = Number.parseFloat(styles.fontSize) || 14;
+  const lineHeight =
+    styles.lineHeight === "normal"
+      ? fontSize * 1.5
+      : Number.parseFloat(styles.lineHeight) || fontSize * 1.5;
+  const padding =
+    Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+  return lineHeight * GUIDE_MARKDOWN_EDITOR_MIN_ROWS + padding;
+}
+
+function fitGuideMarkdownEditor(editor: HTMLTextAreaElement) {
+  const minHeight = guideMarkdownEditorMinHeight(editor);
+  editor.style.height = "0px";
+  editor.style.overflowY = "hidden";
+  const contentHeight = Math.max(editor.scrollHeight, minHeight);
+  const scroller = editor.closest("[data-card-list-scroll]");
+  if (!(scroller instanceof HTMLElement)) {
+    editor.style.height = `${contentHeight}px`;
+    return;
+  }
+  const editorTop = editor.getBoundingClientRect().top;
+  const scrollerRect = scroller.getBoundingClientRect();
+  const visibleTop = Math.max(editorTop, scrollerRect.top);
+  const available = Math.max(minHeight, scrollerRect.bottom - visibleTop);
+  const nextHeight = Math.min(contentHeight, available);
+  editor.style.height = `${nextHeight}px`;
+  editor.style.overflowY = contentHeight > nextHeight ? "auto" : "hidden";
+}
+
+function GuideMarkdownSourceEditor({
+  ariaLabel,
+  editorRef,
+  value,
+  onChange,
+  onSelect,
+}: {
+  ariaLabel: string;
+  editorRef: RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
+  onSelect: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
+}) {
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const fit = () => fitGuideMarkdownEditor(editor);
+    fit();
+    const scroller = editor.closest("[data-card-list-scroll]");
+    const observer = new ResizeObserver(fit);
+    if (scroller instanceof HTMLElement) {
+      observer.observe(scroller);
+      scroller.addEventListener("scroll", fit, { passive: true });
+    }
+    window.addEventListener("resize", fit);
+    return () => {
+      observer.disconnect();
+      if (scroller instanceof HTMLElement) {
+        scroller.removeEventListener("scroll", fit);
+      }
+      window.removeEventListener("resize", fit);
+    };
+  }, [editorRef, value]);
   return (
-    <div
-      className="group/boundary flex h-6 items-center justify-center"
-      onFocus={() => onSetInsertionPoint(offset)}
-      onMouseEnter={() => onSetInsertionPoint(offset)}
+    <Textarea
+      autoFocus
+      ref={(node) => {
+        editorRef.current = node;
+        if (node) fitGuideMarkdownEditor(node);
+      }}
+      aria-label={ariaLabel}
+      className="min-h-[5lh] w-full resize-none overflow-hidden overscroll-contain rounded-none border-0 bg-transparent px-0 py-0 font-mono text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+      rows={5}
+      value={value}
+      onChange={onChange}
+      onSelect={onSelect}
+    />
+  );
+}
+
+function GuideCellSaveButton({
+  onDone,
+  embedded = false,
+  className,
+}: {
+  onDone: () => void;
+  embedded?: boolean;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Button
+      aria-label={t("common:save", {
+        defaultValue: "Save",
+      })}
+      className={cn(
+        GUIDE_SAVE_BUTTON_CLASS,
+        !embedded && "absolute right-1.5 top-1.5 z-10",
+        className,
+      )}
+      size="icon"
+      type="button"
+      variant="ghost"
+      onClick={onDone}
     >
-      <div className="h-px flex-1 bg-transparent transition-colors group-hover/boundary:bg-border group-focus-within/boundary:bg-border" />
-      <Popover
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (!nextOpen) resetInsert();
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            aria-label={t("profiles:detail.workflow.guide.insertAtPosition", {
-              defaultValue: "Insert at this position",
-            })}
-            className="mx-1 h-5 w-5 rounded-full border bg-background p-0 opacity-0 shadow-none transition-opacity group-hover/boundary:opacity-100 group-focus-within/boundary:opacity-100"
-            onClick={() => onSetInsertionPoint(offset)}
-            size="icon"
-            variant="ghost"
-          >
-            <Plus className="h-3 w-3" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="center" className="w-72 p-2">
-          {activeInsert === null ? (
-            <div className="space-y-1">
-              <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("profiles:detail.workflow.guide.insert", {
-                  defaultValue: "Insert",
-                })}
-              </p>
-              <Button
-                className="w-full justify-start"
-                onClick={() => {
-                  onInsert("\n\n## New section\n\n");
-                  closeInsert();
-                }}
-                size="sm"
-                variant="ghost"
-              >
-                <FileText className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.inPlaceMarkdown", {
-                  defaultValue: "In-Place Markdown",
-                })}
-              </Button>
-              <Button
-                className="w-full justify-start"
-                onClick={() => setActiveInsert("external_markdown")}
-                size="sm"
-                variant="ghost"
-              >
-                <FilePlus2 className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.externalMarkdown", {
-                  defaultValue: "External Markdown",
-                })}
-              </Button>
-              <Button
-                className="w-full justify-start"
-                onClick={() => setActiveInsert("reference")}
-                size="sm"
-                variant="ghost"
-              >
-                <FileText className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.reference", {
-                  defaultValue: "Reference",
-                })}
-              </Button>
-              <Button
-                className="w-full justify-start"
-                onClick={() => setActiveInsert("capability")}
-                size="sm"
-                variant="ghost"
-              >
-                <Wrench className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.capability", {
-                  defaultValue: "Capability",
-                })}
-              </Button>
-              <Button
-                className="w-full justify-start"
-                onClick={() => setActiveInsert("script")}
-                size="sm"
-                variant="ghost"
-              >
-                <FileText className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.script", {
-                  defaultValue: "Script",
-                })}
-              </Button>
-              <Button
-                className="w-full justify-start"
-                onClick={() => setActiveInsert("asset")}
-                size="sm"
-                variant="ghost"
-              >
-                <FileText className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.asset", {
-                  defaultValue: "Asset",
-                })}
-              </Button>
-            </div>
-          ) : (
-            <Button
-              className="mb-2 w-full justify-start"
-              onClick={resetInsert}
-              size="sm"
-              variant="ghost"
-            >
-              <ChevronLeft className="mr-2 h-3.5 w-3.5" />
-              {t("profiles:detail.workflow.guide.backToInsertTypes", {
-                defaultValue: "Back to insert types",
-              })}
-            </Button>
+      <Save className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
+function GuideCellEditorActions({
+  onSave,
+  onDelete,
+}: {
+  onSave: () => void;
+  onDelete?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-1">
+      {onDelete ? (
+        <Button
+          aria-label={t("profiles:detail.workflow.guide.deleteCell", {
+            defaultValue: "Delete block",
+          })}
+          className={cn(
+            GUIDE_SAVE_BUTTON_CLASS,
+            "text-destructive hover:bg-destructive/10 hover:text-destructive",
           )}
-          {activeInsert === "capability" ? (
-            <div className="mt-2 border-t pt-2">
-              <div className="max-h-40 space-y-1 overflow-auto">
-                {capabilitiesLoading ? (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">
-                    {t("common:loading", { defaultValue: "Loading..." })}
-                  </p>
-                ) : (
-                  capabilities.map((capability) => (
-                    <Button
-                      className="w-full justify-start"
-                      key={capability.ref_id}
-                      onClick={() => setSelectedCapability(capability)}
-                      size="sm"
-                      variant={
-                        selectedCapability?.ref_id === capability.ref_id
-                          ? "secondary"
-                          : "ghost"
-                      }
-                    >
-                      {capability.label}
-                    </Button>
-                  ))
-                )}
-              </div>
-              {selectedCapability ? (
-                <div className="mt-2 space-y-2 border-t px-2 pt-2">
-                <p className="text-xs font-medium">
-                  {selectedCapability.label}
-                </p>
-                {selectedCapability.description ? (
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    <span className="font-medium">
-                      {t("profiles:detail.workflow.guide.toolUsageDescription", {
-                        defaultValue: "Tool usage description:",
-                      })}{" "}
-                    </span>
-                    {selectedCapability.description}
-                  </p>
-                ) : null}
-                <label
-                  className="block text-[11px] font-medium text-muted-foreground"
-                  htmlFor={`capability-exposure-${offset}`}
-                >
-                  {t("profiles:detail.workflow.guide.exposure", {
-                    defaultValue: "Exposure",
-                  })}
-                </label>
-                <select
-                  aria-label={t(
-                    "profiles:detail.workflow.guide.capabilityExposure",
-                    { defaultValue: "Capability exposure" },
-                  )}
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-                  id={`capability-exposure-${offset}`}
-                  value={bindingPolicy}
-                  onChange={(event) =>
-                    setBindingPolicy(
-                      event.target.value as "direct" | "meta_on_demand",
-                    )
-                  }
-                >
-                  <option value="meta_on_demand">
-                    {t("profiles:detail.workflow.guide.metaOnDemand", {
-                      defaultValue: "Meta on demand",
-                    })}
-                  </option>
-                  <option value="direct">
-                    {t("profiles:detail.workflow.guide.directExposure", {
-                      defaultValue: "Direct exposure",
-                    })}
-                  </option>
-                </select>
-                <label
-                  className="block text-[11px] font-medium text-muted-foreground"
-                  htmlFor={`capability-guide-${offset}`}
-                >
-                  {t("profiles:detail.workflow.guide.capabilityGuide", {
-                    defaultValue: "Guide",
-                  })}
-                </label>
-                <Textarea
-                  className="min-h-20 resize-y text-xs"
-                  id={`capability-guide-${offset}`}
-                  value={capabilityGuide}
-                  onChange={(event) => setCapabilityGuide(event.target.value)}
-                  placeholder={t(
-                    "profiles:detail.workflow.guide.capabilityGuidePlaceholder",
-                    { defaultValue: "How this occurrence should be used" },
-                  )}
-                />
-                <Button
-                  className="w-full justify-start"
-                  onClick={() => {
-                    onInsertCapability(
-                      selectedCapability,
-                      bindingPolicy,
-                      capabilityGuide,
-                    );
-                    closeInsert();
-                  }}
-                  size="sm"
-                >
-                  <Plus className="mr-2 h-3.5 w-3.5" />
-                  {t("profiles:detail.workflow.guide.insertCapability", {
-                    defaultValue: "Insert capability",
-                  })}
-                </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {activeInsert === "external_markdown" ? (
-            <div className="mt-2 border-t px-2 pt-2">
-              <label
-                className="block text-[11px] font-medium text-muted-foreground"
-                htmlFor={`external-document-${offset}`}
-              >
-                {t("profiles:detail.workflow.guide.newExternalMarkdown", {
-                  defaultValue: "New external Markdown",
-                })}
-              </label>
-              <div className="mt-1 flex gap-1">
-                <Input
-                  id={`external-document-${offset}`}
-                  value={externalDocumentTitle}
-                  onChange={(event) =>
-                    setExternalDocumentTitle(event.target.value)
-                  }
-                  placeholder={t("profiles:detail.workflow.guide.sectionName", {
-                    defaultValue: "Section name",
-                  })}
-                />
-                <Button
-                  aria-label={t(
-                    "profiles:detail.workflow.guide.createExternalMarkdown",
-                    { defaultValue: "Create external Markdown" },
-                  )}
-                  disabled={
-                    !externalDocumentTitle.trim() || creatingExternalDocument
-                  }
-                  onClick={() => {
-                    void onCreateExternalDocument(externalDocumentTitle).then(
-                      closeInsert,
-                      () => undefined,
-                    );
-                  }}
-                  size="icon"
-                  type="button"
-                >
-                  <FilePlus2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {activeInsert === "reference" ||
-          activeInsert === "script" ||
-          activeInsert === "asset" ? (
-            <div className="mt-2 border-t pt-2">
-              <div className="max-h-40 space-y-1 overflow-auto">
-                {visibleFiles.map((file) => (
-                  <Button
-                    className="w-full justify-start"
-                    key={file.package_file_id}
-                    onClick={() => {
-                      onInsert(`[${file.title}](${file.relative_path})`);
-                      closeInsert();
-                    }}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    {file.title}
-                  </Button>
-                ))}
-                {visibleFiles.length === 0 ? (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">
-                    {t("profiles:detail.workflow.guide.noPackageFiles", {
-                      defaultValue: "No package files yet.",
-                    })}
-                  </p>
-                ) : null}
-              </div>
-              <div className="mt-2 space-y-2 border-t px-2 pt-2">
-              <p className="text-[11px] font-medium text-muted-foreground">
-                {t("profiles:detail.workflow.guide.uploadPackageFile", {
-                  defaultValue: "Upload package file",
-                })}
-              </p>
-              <Input
-                value={packageTitle}
-                onChange={(event) => setPackageTitle(event.target.value)}
-                placeholder={t("profiles:detail.workflow.guide.fileTitle", {
-                  defaultValue: "File title",
-                })}
-              />
-              <Input
-                aria-label={t(
-                  "profiles:detail.workflow.guide.packageFileUpload",
-                  { defaultValue: "Package file upload" },
-                )}
-                accept={acceptedExtensions(packageCategory)}
-                type="file"
-                onChange={(event) =>
-                  setPackageUpload(event.target.files?.[0] ?? null)
-                }
-              />
-              <Button
-                className="w-full justify-start"
-                disabled={!packageUpload || creatingPackageFile}
-                onClick={() => {
-                  if (!packageUpload) return;
-                  void onCreatePackageFile({
-                    title: packageTitle,
-                    category: packageCategory,
-                    file: packageUpload,
-                  }).then(closeInsert, () => undefined);
-                }}
-                size="sm"
-              >
-                <Upload className="mr-2 h-3.5 w-3.5" />
-                {t("profiles:detail.workflow.guide.uploadAndInsert", {
-                  defaultValue: "Upload and insert",
-                })}
-              </Button>
-              </div>
-            </div>
-          ) : null}
-        </PopoverContent>
-      </Popover>
-      <div className="h-px flex-1 bg-transparent transition-colors group-hover/boundary:bg-border group-focus-within/boundary:bg-border" />
+          onClick={onDelete}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
+      <GuideCellSaveButton embedded onDone={onSave} />
     </div>
   );
 }
 
-function acceptedExtensions(category: WorkflowGuidePackageCategory) {
-  if (category === "reference") return ".json,.yaml,.yml,.toml";
-  if (category === "script") return ".js,.mjs,.cjs,.py";
-  return ".pdf,.docx,.xlsx";
+function GuideMarkdownEditForm({
+  editorRef,
+  initialSource,
+  onCancel,
+  onDelete,
+  onDone,
+  onSelect,
+}: {
+  editorRef: RefObject<HTMLTextAreaElement | null>;
+  initialSource: string;
+  onCancel: () => void;
+  onDelete?: () => void;
+  onDone: (value: string) => void;
+  onSelect: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
+}) {
+  const { t } = useTranslation();
+  const [source, setSource] = useState(() =>
+    formatMarkdownCellSourceForEditor(initialSource),
+  );
+  const title =
+    source.match(/^#{1,6}\s+(.+?)\s*$/m)?.[1] ??
+    t("profiles:detail.workflow.guide.markdownBlock", {
+      defaultValue: "Markdown",
+    });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+  return (
+    <div className="-mx-2">
+    <div className={COMPOSER_SHELL_CLASS}>
+      <GuideComposerHeader
+        actions={
+          <GuideCellEditorActions
+            onDelete={onDelete}
+            onSave={() => onDone(source)}
+          />
+        }
+        closeLabel={t("profiles:detail.workflow.guide.cancelEdit", {
+          defaultValue: "Cancel",
+        })}
+        onClose={onCancel}
+        title={title}
+      />
+      <div className="px-3 py-3">
+        <GuideMarkdownSourceEditor
+          ariaLabel={t("profiles:detail.workflow.guide.markdownSource", {
+            defaultValue: "Markdown block source",
+          })}
+          editorRef={editorRef}
+          value={source}
+          onChange={(event) => setSource(event.currentTarget.value)}
+          onSelect={onSelect}
+        />
+      </div>
+    </div>
+    </div>
+  );
 }
 
-function packageCategoryForInsert(
-  activeInsert: "external_markdown" | "reference" | "capability" | "script" | "asset" | null,
-): WorkflowGuidePackageCategory {
-  if (activeInsert === "script") return "script";
-  if (activeInsert === "asset") return "asset";
-  return "reference";
+function GuideExternalReferenceEditForm({
+  cell,
+  onDelete,
+  onDone,
+  onOpenDocument,
+  onUpdate,
+}: {
+  cell: WorkflowGuideDocumentCell;
+  onDelete?: () => void;
+  onDone: () => void;
+  onOpenDocument: () => void;
+  onUpdate: (
+    cell: WorkflowGuideDocumentCell,
+    title: string,
+    guide: string,
+  ) => void;
+}) {
+  const { t } = useTranslation();
+  const reference = cell.externalReference;
+  const [title, setTitle] = useState(reference?.title ?? "");
+  const [guide, setGuide] = useState(reference?.guide ?? "");
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onDone();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onDone]);
+  if (!reference) return null;
+  return (
+    <div className={COMPOSER_SHELL_CLASS}>
+      <GuideComposerHeader
+        actions={
+          <GuideCellEditorActions
+            onDelete={onDelete}
+            onSave={() => {
+              if (!title.trim()) return;
+              onUpdate(cell, title.trim(), guide);
+              onDone();
+            }}
+          />
+        }
+        closeLabel={t("profiles:detail.workflow.guide.cancelEdit", {
+          defaultValue: "Cancel",
+        })}
+        onClose={onDone}
+        onTitleClick={onOpenDocument}
+        title={t("profiles:detail.workflow.guide.openDocumentHint", {
+          defaultValue: "Click to open document",
+        })}
+      />
+      <div className="flex flex-col gap-2 px-3 py-3">
+        <Input
+          aria-label={t("profiles:detail.workflow.guide.sectionName", {
+            defaultValue: "Section name",
+          })}
+          className="h-9 bg-background text-xs"
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder={t("profiles:detail.workflow.guide.sectionName", {
+            defaultValue: "Section name",
+          })}
+          value={title}
+        />
+        <Textarea
+          aria-label={t("profiles:detail.workflow.guide.externalGuide", {
+            defaultValue: "Context in main Guide",
+          })}
+          className="min-h-[5lh] resize-y bg-background text-xs"
+          onChange={(event) => setGuide(event.target.value)}
+          placeholder={t(
+            "profiles:detail.workflow.guide.externalGuidePlaceholder",
+            {
+              defaultValue:
+                "Explain when readers should open this external document.",
+            },
+          )}
+          value={guide}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GuideCapabilityEditForm({
+  cell,
+  capabilities,
+  capabilitiesLoading,
+  editorRef,
+  onDelete,
+  onDone,
+  onUpdate,
+}: {
+  cell: WorkflowGuideDocumentCell;
+  capabilities: WorkflowCapabilityOption[];
+  capabilitiesLoading: boolean;
+  editorRef: RefObject<HTMLTextAreaElement | null>;
+  onDelete?: () => void;
+  onDone: () => void;
+  onUpdate: (
+    cell: WorkflowGuideDocumentCell,
+    name: string,
+    exposure: "direct" | "meta_on_demand",
+    guide: string,
+  ) => void;
+}) {
+  const { t } = useTranslation();
+  const capability = cell.capability;
+  const [name, setName] = useState(capability?.name ?? "");
+  const [exposure, setExposure] = useState<"direct" | "meta_on_demand">(
+    capability?.exposure ?? "meta_on_demand",
+  );
+  const [guide, setGuide] = useState(capability?.guide ?? "");
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onDone();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onDone]);
+  if (!capability) return null;
+  return (
+    <div className={COMPOSER_SHELL_CLASS}>
+      <GuideComposerHeader
+        actions={
+          <GuideCellEditorActions
+            onDelete={onDelete}
+            onSave={() => {
+              onUpdate(cell, name, exposure, guide);
+              onDone();
+            }}
+          />
+        }
+        closeLabel={t("profiles:detail.workflow.guide.cancelEdit", {
+          defaultValue: "Cancel",
+        })}
+        onClose={onDone}
+        title={name}
+      />
+      <div className="flex flex-col gap-2 px-3 py-3">
+        <GuideCapabilityFields
+          autoFocus
+          capabilities={capabilities}
+          capabilitiesLoading={capabilitiesLoading}
+          editorRef={editorRef}
+          exposure={exposure}
+          guide={guide}
+          name={name}
+          onExposureChange={setExposure}
+          onGuideChange={setGuide}
+          onNameChange={setName}
+        />
+      </div>
+    </div>
+  );
 }
 
 function collectOccurrences(
@@ -1842,10 +2313,9 @@ function collectOccurrences(
     for (const match of document.markdown.matchAll(expression)) {
       const key = match[1];
       const offset = match.index ?? 0;
-      occurrences.set(key, [
-        ...(occurrences.get(key) ?? []),
-        { path: document.path, offset },
-      ]);
+      const items = occurrences.get(key) ?? [];
+      items.push({ path: document.path, offset });
+      occurrences.set(key, items);
     }
   }
   return occurrences;
@@ -1853,6 +2323,7 @@ function collectOccurrences(
 
 function collectMaterialOccurrences(
   documents: Array<{ path: string; title: string; markdown: string }>,
+  parsedGuides: Map<string, WorkflowGuideParseResult>,
 ) {
   const occurrences = collectOccurrences(
     documents,
@@ -1860,16 +2331,24 @@ function collectMaterialOccurrences(
   );
   const siblingReference = /\[[^\]\n]+\]\(((?:\.\/)?[^/\s)#]+\.md)(?:#[^\s)]+)?\)/g;
   for (const document of documents) {
+    const parsed = parsedGuides.get(document.path);
+    if (!parsed) continue;
+    const lineOffsets = buildLineOffsets(document.markdown);
+    for (const external of parsed.externals) {
+      const offset = lineOffsets[external.startLine - 1] ?? 0;
+      const items = occurrences.get(external.path) ?? [];
+      items.push({ path: document.path, offset });
+      occurrences.set(external.path, items);
+    }
     if (document.path === "SKILL.md") continue;
     siblingReference.lastIndex = 0;
     const parent = document.path.slice(0, document.path.lastIndexOf("/"));
     for (const match of document.markdown.matchAll(siblingReference)) {
       const fileName = match[1].replace(/^\.\//, "");
       const key = `${parent}/${fileName}`;
-      occurrences.set(key, [
-        ...(occurrences.get(key) ?? []),
-        { path: document.path, offset: match.index ?? 0 },
-      ]);
+      const items = occurrences.get(key) ?? [];
+      items.push({ path: document.path, offset: match.index ?? 0 });
+      occurrences.set(key, items);
     }
   }
   return occurrences;
@@ -1877,6 +2356,7 @@ function collectMaterialOccurrences(
 
 function collectCapabilityOccurrences(
   documents: Array<{ path: string; title: string; markdown: string }>,
+  parsedGuides: Map<string, WorkflowGuideParseResult>,
 ) {
   const occurrences = new Map<
     string,
@@ -1888,11 +2368,9 @@ function collectCapabilityOccurrences(
     }>
   >();
   for (const document of documents) {
-    const parsed = parseWorkflowGuide(document.markdown);
-    const lineOffsets = [0];
-    for (let index = 0; index < document.markdown.length; index += 1) {
-      if (document.markdown[index] === "\n") lineOffsets.push(index + 1);
-    }
+    const parsed = parsedGuides.get(document.path);
+    if (!parsed) continue;
+    const lineOffsets = buildLineOffsets(document.markdown);
     for (const capability of parsed.capabilities) {
       const occurrence = {
         path: document.path,
@@ -1900,21 +2378,68 @@ function collectCapabilityOccurrences(
         exposure: capability.exposure,
         guide: capability.guide,
       };
-      occurrences.set(capability.name, [
-        ...(occurrences.get(capability.name) ?? []),
-        occurrence,
-      ]);
+      const items = occurrences.get(capability.name) ?? [];
+      items.push(occurrence);
+      occurrences.set(capability.name, items);
     }
   }
   return occurrences;
 }
 
-function effectiveExposure(
-  occurrences: Array<{ exposure: "direct" | "meta_on_demand" }>,
-) {
-  return occurrences.some((occurrence) => occurrence.exposure === "direct")
-    ? "direct"
-    : "meta_on_demand";
+function GuideWorkflowCellBrowse({
+  cell,
+  capabilities,
+  onOpenExternalDocument,
+}: {
+  cell: WorkflowGuideDocumentCell;
+  capabilities: WorkflowCapabilityOption[];
+  onOpenExternalDocument: (relativePath: string) => void;
+}) {
+  const { t } = useTranslation();
+
+  if (cell.kind === "capability" && cell.capability) {
+    return (
+      <GuideCapabilityBlock
+        capabilities={capabilities}
+        capability={cell.capability}
+      />
+    );
+  }
+
+  if (cell.kind === "external_reference" && cell.externalReference) {
+    return (
+      <div className="space-y-1">
+        <button
+          className="text-left text-sm font-medium text-primary hover:underline"
+          onClick={() => onOpenExternalDocument(cell.externalReference!.relativePath)}
+          type="button"
+        >
+          {t("profiles:detail.workflow.guide.openDocumentHint", {
+            defaultValue: "Click to open document",
+          })}
+        </button>
+        {cell.externalReference.guide ? (
+          <GuideMarkdownPreview content={cell.externalReference.guide} />
+        ) : (
+          <p className="text-sm italic text-muted-foreground">
+            {t("profiles:detail.workflow.guide.externalGuidePlaceholder", {
+              defaultValue:
+                "Explain when readers should open this external document.",
+            })}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <GuideMarkdownPreview
+      content={cell.source}
+      emptyLabel={t("profiles:detail.workflow.guide.emptyMarkdownBlock", {
+        defaultValue: "Empty Markdown block",
+      })}
+    />
+  );
 }
 
 function GuideMarkdownPreview({
@@ -1926,7 +2451,7 @@ function GuideMarkdownPreview({
 }) {
   if (!content.trim()) {
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="min-h-7 text-sm italic text-muted-foreground">
         {emptyLabel ?? "Empty"}
       </p>
     );
@@ -1938,15 +2463,26 @@ function GuideMarkdownPreview({
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="mb-3 text-xl font-semibold">{children}</h1>
+            <h1 className="mb-2 text-xl font-semibold last:mb-0">{children}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mb-3 text-lg font-semibold">{children}</h2>
+            <h2 className="mb-2 text-lg font-semibold last:mb-0">{children}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mb-2 text-base font-semibold">{children}</h3>
+            <h3 className="mb-2 text-base font-semibold last:mb-0">{children}</h3>
           ),
-          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+          ol: ({ children }) => (
+            <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">
+              {children}
+            </ol>
+          ),
+          ul: ({ children }) => (
+            <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">
+              {children}
+            </ul>
+          ),
+          li: ({ children }) => <li className="leading-6">{children}</li>,
           code: ({ children }) => (
             <code className="rounded bg-muted px-1 font-mono text-xs">
               {children}
@@ -1966,78 +2502,7 @@ function GuideMarkdownPreview({
 }
 
 function SkillPreview({ content }: { content: string }) {
-  const { t } = useTranslation("profiles");
-  const { frontMatter, body } = stripLeadingSkillFrontMatter(content);
   return (
-    <div>
-      <dl className="mb-5 grid gap-3 border-b pb-4 text-sm sm:grid-cols-[7rem_minmax(0,1fr)]">
-        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {t("detail.workflow.guide.previewName", { defaultValue: "Name" })}
-        </dt>
-        <dd className="min-w-0">
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-            {frontMatter.name ?? "—"}
-          </code>
-        </dd>
-        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {t("detail.workflow.guide.previewDescriptionLabel", {
-            defaultValue: "Description",
-          })}
-        </dt>
-        <dd className="leading-6 text-slate-700 dark:text-slate-300">
-          {frontMatter.description ?? "—"}
-        </dd>
-      </dl>
-      <GuideMarkdownPreview content={body} />
-    </div>
+    <GuideMarkdownPreview content={stripLeadingSkillFrontMatter(content).body} />
   );
-}
-
-function stripLeadingSkillFrontMatter(content: string) {
-  if (!content.startsWith("---\n"))
-    return { frontMatter: {} as Record<string, string>, body: content };
-  const closingOffset = content.indexOf("\n---\n", 4);
-  if (closingOffset < 0)
-    return { frontMatter: {} as Record<string, string>, body: content };
-  const frontMatter = parseSkillFrontMatter(
-    content.slice(4, closingOffset),
-  );
-  return { frontMatter, body: content.slice(closingOffset + 5) };
-}
-
-function parseSkillFrontMatter(source: string) {
-  const values: Record<string, string> = {};
-  const lines = source.split("\n");
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(name|description):(?:\s*(.*))?$/.exec(lines[index]);
-    if (!match) continue;
-    const key = match[1];
-    const scalar = match[2] ?? "";
-    if (/^[|>][-+]?$/.test(scalar)) {
-      const block: string[] = [];
-      while (index + 1 < lines.length && /^\s+/.test(lines[index + 1])) {
-        block.push(lines[(index += 1)].replace(/^\s{2}/, ""));
-      }
-      values[key] = scalar.startsWith(">")
-        ? block.join(" ").trim()
-        : block.join("\n");
-      continue;
-    }
-    values[key] = parseYamlScalar(scalar);
-  }
-  return values;
-}
-
-function parseYamlScalar(value: string) {
-  if (value.startsWith('"') && value.endsWith('"')) {
-    try {
-      return JSON.parse(value) as string;
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
-  if (value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1).replace(/''/g, "'");
-  }
-  return value;
 }

@@ -16,6 +16,11 @@ use mcpmate::{
         pool::UpstreamConnectionPool,
         profile::{
             authoring::{ProfileAuthoringCommand, ProfileAuthoringService},
+            guide::{
+                WorkflowGuideError, WorkflowGuidePackageCategory, WorkflowGuidePackageFileSaveCommand,
+                WorkflowGuidePreviewCommand, WorkflowGuideReclamationConfirmation, WorkflowGuideSaveCommand,
+                WorkflowGuideService,
+            },
             materials::{
                 WorkflowMaterialKind, WorkflowMaterialSaveCommand, WorkflowMaterialsReorderCommand,
                 WorkflowMaterialsService, WorkflowStepMaterialsSaveCommand,
@@ -23,11 +28,6 @@ use mcpmate::{
             workflow::{
                 WorkflowBindingCommand, WorkflowBindingPolicy, WorkflowBindingValidation, WorkflowSpecificationError,
                 WorkflowSpecificationSaveCommand, WorkflowSpecificationService, WorkflowStepCommand,
-            },
-            workflow_guide::{
-                WorkflowGuideError, WorkflowGuidePackageCategory, WorkflowGuidePackageFileSaveCommand,
-                WorkflowGuidePreviewCommand, WorkflowGuideReclamationConfirmation, WorkflowGuideSaveCommand,
-                WorkflowGuideService,
             },
         },
         proxy::ProxyServer,
@@ -117,6 +117,67 @@ async fn profile_authoring_saves_workflow_guidance_without_replacing_guide_steps
 }
 
 #[tokio::test]
+async fn projected_skill_frontmatter_reflects_bound_server_compatibility() {
+    let pool = pool().await;
+    add_server(&pool, "server-a", "Server A", 1).await;
+    let profile = workflow_authoring_service(&pool)
+        .save(workflow_profile_command(), "test")
+        .await
+        .expect("create workflow Profile");
+    let profile_id = profile.profile.id.expect("created workflow Profile ID");
+    let skills_root = tempfile::tempdir().expect("create temporary Skills root");
+    let guide = WorkflowGuideService::new(pool.clone());
+    guide.view(&profile_id).await.expect("initialize Workflow Guide");
+
+    let without_bindings = guide
+        .save_and_project(
+            WorkflowGuideSaveCommand {
+                profile_id: profile_id.clone(),
+                expected_guide_revision: 0,
+                markdown: "# Investigate incident\n".to_string(),
+                reclamation_confirmation: None,
+            },
+            skills_root.path().to_path_buf(),
+        )
+        .await
+        .expect("save Guide without capability bindings");
+    assert!(!without_bindings.projected_skill.markdown.contains("compatibility:"));
+
+    let with_bindings = guide
+        .save_and_project(
+            WorkflowGuideSaveCommand {
+                profile_id: profile_id.clone(),
+                expected_guide_revision: without_bindings.guide.guide_revision,
+                markdown: "# Investigate incident\n\n:::capability {\"name\":\"server_a__lookup\",\"exposure\":\"direct\"}\nCollect evidence before deciding.\n:::\n".to_string(),
+                reclamation_confirmation: None,
+            },
+            skills_root.path().to_path_buf(),
+        )
+        .await
+        .expect("save Guide with capability bindings");
+    assert!(
+        with_bindings
+            .projected_skill
+            .markdown
+            .contains("compatibility: Requires Server A via MCPMate.")
+    );
+
+    let skill_path = skills_root.path().join("investigate-incident/SKILL.md");
+    let skill_on_disk = std::fs::read_to_string(&skill_path).expect("read projected SKILL.md");
+    assert!(skill_on_disk.contains("compatibility: Requires Server A via MCPMate."));
+
+    let preview = guide
+        .preview(WorkflowGuidePreviewCommand {
+            profile_id,
+            relative_path: None,
+            markdown: with_bindings.guide.markdown.clone(),
+        })
+        .await
+        .expect("preview projected Skill");
+    assert_eq!(preview.projected_skill.markdown, with_bindings.projected_skill.markdown);
+}
+
+#[tokio::test]
 async fn workflow_guide_capability_binding_projects_readable_skill_and_normalizes_step_policy() {
     let pool = pool().await;
     let ref_ids = add_server(&pool, "server-a", "Server A", 1).await;
@@ -141,13 +202,21 @@ async fn workflow_guide_capability_binding_projects_readable_skill_and_normalize
         .await
         .expect("save and project Guide with a configured Capability");
 
+    assert!(saved.projected_skill.markdown.contains("Use it before deciding."));
     assert!(
-        saved
+        !saved
             .projected_skill
             .markdown
             .contains("**Capability: server_a__lookup**")
     );
+    assert!(
+        !saved
+            .projected_skill
+            .markdown
+            .contains("Use `server_a__lookup` directly.")
+    );
     assert!(!saved.projected_skill.markdown.contains(":::capability"));
+    assert!(!saved.projected_skill.markdown.contains("Exposure:"));
     assert!(!saved.projected_skill.markdown.contains(&ref_ids[0]));
     let step_policy: String =
         sqlx::query_scalar("SELECT binding_policy FROM workflow_profile_step_bindings WHERE profile_id = ?")
@@ -303,7 +372,10 @@ async fn external_guide_document_persists_capabilities_steps_and_readable_projec
     let projected_root = std::fs::read_to_string(skills_root.path().join("investigate-incident/SKILL.md"))
         .expect("read projected root Skill");
     assert!(projected_root.contains("# Investigate incident"));
-    assert!(projected_root.contains(&format!("[{}]({})", index.title, index.relative_path)));
+    assert!(projected_root.contains("[Evidence index]"));
+    assert!(projected_root.contains(&index.relative_path));
+    assert!(!projected_root.contains("**External document: Evidence index**"));
+    assert!(!projected_root.contains("Consult `"));
     let preview = guide
         .preview(WorkflowGuidePreviewCommand {
             profile_id: profile_id.clone(),
@@ -313,12 +385,15 @@ async fn external_guide_document_persists_capabilities_steps_and_readable_projec
         .await
         .expect("preview root Guide with recursively reachable capabilities");
     assert!(preview.projected_skill.markdown.contains("# Investigate incident"));
+    assert!(preview.projected_skill.markdown.contains("[Evidence index]"));
+    assert!(preview.projected_skill.markdown.contains(&index.relative_path));
     assert!(
-        preview
+        !preview
             .projected_skill
             .markdown
-            .contains(&format!("[{}]({})", index.title, index.relative_path))
+            .contains("**External document: Evidence index**")
     );
+    assert!(!preview.projected_skill.markdown.contains("Consult `"));
     let projected = std::fs::read_to_string(
         skills_root
             .path()
@@ -326,8 +401,11 @@ async fn external_guide_document_persists_capabilities_steps_and_readable_projec
             .join(&external.relative_path),
     )
     .expect("read projected external document");
-    assert!(projected.contains("**Capability: server_a__lookup**"));
+    assert!(projected.contains("Use it to collect external evidence."));
+    assert!(!projected.contains("**Capability: server_a__lookup**"));
+    assert!(!projected.contains("Use `server_a__lookup` directly."));
     assert!(!projected.contains(":::capability"));
+    assert!(!projected.contains("Exposure:"));
     let step_policy: String =
         sqlx::query_scalar("SELECT binding_policy FROM workflow_profile_step_bindings WHERE profile_id = ?")
             .bind(&profile_id)
@@ -341,6 +419,95 @@ async fn external_guide_document_persists_capabilities_steps_and_readable_projec
         .await
         .expect("load external Guide source");
     assert!(source.markdown.contains(":::capability"));
+}
+
+#[tokio::test]
+async fn mixed_exposure_occurrences_project_one_invocation_strategy() {
+    let pool = pool().await;
+    add_server(&pool, "server-a", "Server A", 1).await;
+    let profile = workflow_authoring_service(&pool)
+        .save(workflow_profile_command(), "test")
+        .await
+        .expect("create workflow Profile");
+    let profile_id = profile.profile.id.expect("created workflow Profile ID");
+    let skills_root = tempfile::tempdir().expect("create temporary Skills root");
+    let guide = WorkflowGuideService::new(pool.clone());
+    guide.view(&profile_id).await.expect("initialize Workflow Guide");
+
+    let saved_external = guide
+        .save_package_file_and_project(
+            WorkflowGuidePackageFileSaveCommand {
+                profile_id: profile_id.clone(),
+                package_file_id: None,
+                expected_file_revision: None,
+                expected_guide_revision: Some(0),
+                title: "Evidence procedure".to_string(),
+                category: WorkflowGuidePackageCategory::Reference,
+                original_filename: "evidence-procedure.md".to_string(),
+                bytes: b"# Evidence procedure\n\n:::capability {\"name\":\"server_a__lookup\",\"exposure\":\"direct\"}\nCapture the screenshot here.\n:::\n".to_vec(),
+                reclamation_confirmation: None,
+            },
+            skills_root.path().to_path_buf(),
+        )
+        .await
+        .expect("save external document with a Direct Capability");
+    let external = saved_external
+        .guide
+        .package_files
+        .first()
+        .expect("saved external document");
+    let linked = guide
+        .save_and_project(
+            WorkflowGuideSaveCommand {
+                profile_id: profile_id.clone(),
+                expected_guide_revision: saved_external.guide.guide_revision,
+                markdown: format!(
+                    "# Investigate incident\n\n:::capability {{\"name\":\"server_a__lookup\",\"exposure\":\"meta_on_demand\"}}\nInspect details first.\n:::\n\n[{}]({})\n",
+                    external.title, external.relative_path
+                ),
+                reclamation_confirmation: None,
+            },
+            skills_root.path().to_path_buf(),
+        )
+        .await
+        .expect("save root Guide with a Meta occurrence of the same Capability");
+
+    let projected_root = std::fs::read_to_string(skills_root.path().join("investigate-incident/SKILL.md"))
+        .expect("read projected root Skill");
+    let projected_external = std::fs::read_to_string(
+        skills_root
+            .path()
+            .join("investigate-incident")
+            .join(&external.relative_path),
+    )
+    .expect("read projected external document");
+    let preview = guide
+        .preview(WorkflowGuidePreviewCommand {
+            profile_id: profile_id.clone(),
+            relative_path: None,
+            markdown: linked.guide.markdown.clone(),
+        })
+        .await
+        .expect("preview mixed-exposure Guide");
+
+    assert_eq!(preview.projected_skill.markdown, projected_root);
+    assert!(projected_root.contains("Inspect details first."));
+    assert!(projected_root.contains("[Evidence procedure]"));
+    assert!(projected_root.contains(&external.relative_path));
+    assert!(!projected_root.contains("Use `server_a__lookup` directly."));
+    assert!(!projected_root.contains("mcpmate_ucan_details"));
+    assert!(!projected_root.contains("Exposure:"));
+    assert!(projected_external.contains("Capture the screenshot here."));
+    assert!(!projected_external.contains("Use `server_a__lookup` directly."));
+    assert!(!projected_external.contains("mcpmate_ucan_details"));
+    let policies: Vec<String> = sqlx::query_scalar(
+        "SELECT binding_policy FROM workflow_profile_step_bindings WHERE profile_id = ? ORDER BY step_index",
+    )
+    .bind(&profile_id)
+    .fetch_all(&pool)
+    .await
+    .expect("load occurrence binding policies");
+    assert_eq!(policies, vec!["meta_on_demand".to_string(), "direct".to_string()]);
 }
 
 fn tool_record(

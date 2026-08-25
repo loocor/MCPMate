@@ -1,0 +1,25 @@
+{
+  workflow: {
+    capability: {
+      list_threshold: 2,
+      section_intro: {
+        base: "The following steps are MCP server capability invocations.",
+        on_demand: "Steps marked `(on-demand)` must be inspected with `mcpmate_ucan_details`, then invoked with `mcpmate_ucan_call`.",
+        direct: "Steps marked `(direct)` can be invoked by tool name.",
+      },
+      item: {
+        direct_only: "Use `{name}` (direct).",
+        on_demand_only: "Invoke `{name}` (on-demand).",
+        direct_with_guide: "`{name}` (direct): {guide}",
+        on_demand_with_guide: "`{name}` (on-demand): {guide}",
+      },
+    },
+    external: {
+      with_guide: "{guide}\n\n[{title}]({path})",
+      link_only: "[{title}]({path})",
+    },
+  },
+  skills: {
+    compatibility: "Requires {servers} via MCPMate.",
+  },
+}

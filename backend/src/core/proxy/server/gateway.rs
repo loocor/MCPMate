@@ -2382,7 +2382,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("sqlite pool");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::initialization::run_initialization(&pool)
             .await
             .expect("initialize database");
@@ -2411,7 +2411,7 @@ mod tests {
             crate::common::profile::ProfileType::Shared,
         );
         profile.is_active = true;
-        let profile_id = crate::test_helpers::insert_profile(&pool, &profile).await;
+        let profile_id = crate::helpers::insert_profile(&pool, &profile).await;
         crate::config::profile::add_server_to_profile(&pool, &profile_id, &server_id, true)
             .await
             .expect("add server to profile");
@@ -3536,7 +3536,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_client_table(&pool).await.expect("init client table");
         initialize_system_settings(&pool)
             .await

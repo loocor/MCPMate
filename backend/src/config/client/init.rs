@@ -67,7 +67,7 @@ mod tests {
     #[tokio::test]
     async fn initializes_current_client_schema_through_migrations() {
         let pool = pool().await;
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_client_table(&pool).await.unwrap();
         let mode: String =
             sqlx::query_scalar("SELECT value FROM client_runtime_settings WHERE key = 'default_config_mode'")

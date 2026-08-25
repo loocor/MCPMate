@@ -65,7 +65,7 @@ jobs:
           sudo apt-get install -y dbus-x11 gnome-keyring libdbus-1-dev pkg-config
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.0
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2

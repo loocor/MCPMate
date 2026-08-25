@@ -8,10 +8,11 @@ type BulkSelectionHeaderProps = {
 	title?: ReactNode;
 	description?: ReactNode;
 	leading?: ReactNode;
-	isBulkMode: boolean;
-	onToggleBulkMode: () => void;
-	actions: BulkAction[];
+	isBulkMode?: boolean;
+	onToggleBulkMode?: () => void;
+	actions?: BulkAction[];
 	trailing?: ReactNode;
+	showModeToggle?: boolean;
 	className?: string;
 };
 
@@ -19,10 +20,11 @@ export function BulkSelectionHeader({
 	title,
 	description,
 	leading,
-	isBulkMode,
+	isBulkMode = false,
 	onToggleBulkMode,
-	actions,
+	actions = [],
 	trailing,
+	showModeToggle = true,
 	className,
 }: BulkSelectionHeaderProps) {
 	const { modeToggleLabel, modeExitLabel } = useBulkSelectionLabels();
@@ -54,16 +56,20 @@ export function BulkSelectionHeader({
 					) : null}
 				</div>
 			)}
-			<div className="flex shrink-0 items-center gap-2">
-				{trailing}
-				<BulkSelectionToolbar
-					isBulkMode={isBulkMode}
-					onToggleMode={onToggleBulkMode}
-					modeToggleLabel={modeToggleLabel}
-					modeExitLabel={modeExitLabel}
-					actions={actions}
-				/>
-			</div>
+			{trailing || (showModeToggle && onToggleBulkMode) ? (
+				<div className="flex shrink-0 items-center gap-2">
+					{trailing}
+					{showModeToggle && onToggleBulkMode ? (
+						<BulkSelectionToolbar
+							isBulkMode={isBulkMode}
+							onToggleMode={onToggleBulkMode}
+							modeToggleLabel={modeToggleLabel}
+							modeExitLabel={modeExitLabel}
+							actions={actions}
+						/>
+					) : null}
+				</div>
+			) : null}
 		</div>
 	);
 }

@@ -1519,7 +1519,7 @@ mod tests {
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         crate::config::server::init::initialize_server_tables(&db_pool)
             .await
             .expect("init server tables");
@@ -1705,7 +1705,7 @@ mod tests {
         );
         profile.is_active = true;
         profile.is_default = true;
-        let profile_id = crate::test_helpers::insert_profile(pool, &profile).await;
+        let profile_id = crate::helpers::insert_profile(pool, &profile).await;
         profile::add_server_to_profile(pool, &profile_id, server_id, true)
             .await
             .expect("attach server to profile");

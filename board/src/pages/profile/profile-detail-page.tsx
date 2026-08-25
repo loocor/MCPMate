@@ -261,7 +261,12 @@ export function ProfileDetailPage() {
 	const reviewItemId = searchParams.get("review_item");
 	const reviewRefId = searchParams.get("ref_id");
 	const hasExplicitTab = searchParams.has("tab");
-	const handleDetailTabChange = useCallback(
+	const [workflowGuideDirty, setWorkflowGuideDirty] = useState(false);
+	const [workflowGuideResetKey, setWorkflowGuideResetKey] = useState(0);
+	const [pendingWorkflowTab, setPendingWorkflowTab] = useState<string | null>(
+		null,
+	);
+	const applyDetailTabChange = useCallback(
 		(tab: string) => {
 			setSearchParams(
 				(current) => {
@@ -277,10 +282,23 @@ export function ProfileDetailPage() {
 		},
 		[setSearchParams],
 	);
+	const handleDetailTabChange = useCallback(
+		(tab: string) => {
+			if (
+				activeTab === "workflow" &&
+				workflowGuideDirty &&
+				tab !== activeTab
+			) {
+				setPendingWorkflowTab(tab);
+				return;
+			}
+			applyDetailTabChange(tab);
+		},
+		[activeTab, applyDetailTabChange, workflowGuideDirty],
+	);
 
 	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-	const [workflowGuideRefreshKey, setWorkflowGuideRefreshKey] = useState(0);
 	// Filters: servers
 	const [serverQuery, setServerQuery] = useState("");
 	const [serverStatus, setServerStatus] = useState<
@@ -872,19 +890,19 @@ export function ProfileDetailPage() {
 		}) => {
 			return enable
 				? configSuitsApi.enableServer(
-						profileId!,
-						serverId,
-						requireMatchingAuthoringGeneration([
-							serversResponse?.authoring_generation,
-						]),
-					)
+					profileId!,
+					serverId,
+					requireMatchingAuthoringGeneration([
+						serversResponse?.authoring_generation,
+					]),
+				)
 				: configSuitsApi.disableServer(
-						profileId!,
-						serverId,
-						requireMatchingAuthoringGeneration([
-							serversResponse?.authoring_generation,
-						]),
-					);
+					profileId!,
+					serverId,
+					requireMatchingAuthoringGeneration([
+						serversResponse?.authoring_generation,
+					]),
+				);
 		},
 		onSuccess: () => {
 			refreshProfileCapabilitySurface();
@@ -911,29 +929,29 @@ export function ProfileDetailPage() {
 		mutationFn: ({ toolId, enable }: { toolId: string; enable: boolean }) => {
 			return enable
 				? configSuitsApi.enableTool(
-						profileId!,
-						toolId,
-						requireMatchingAuthoringGeneration([
-							toolsResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[toolId],
-							toolsResponse?.tools,
-							toolsResponse?.source_revision_set,
-						),
-					)
+					profileId!,
+					toolId,
+					requireMatchingAuthoringGeneration([
+						toolsResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[toolId],
+						toolsResponse?.tools,
+						toolsResponse?.source_revision_set,
+					),
+				)
 				: configSuitsApi.disableTool(
-						profileId!,
-						toolId,
-						requireMatchingAuthoringGeneration([
-							toolsResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[toolId],
-							toolsResponse?.tools,
-							toolsResponse?.source_revision_set,
-						),
-					);
+					profileId!,
+					toolId,
+					requireMatchingAuthoringGeneration([
+						toolsResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[toolId],
+						toolsResponse?.tools,
+						toolsResponse?.source_revision_set,
+					),
+				);
 		},
 		onSuccess: () => {
 			refreshProfileCapabilitySurface();
@@ -966,29 +984,29 @@ export function ProfileDetailPage() {
 		}) => {
 			return enable
 				? configSuitsApi.enableResource(
-						profileId!,
-						resourceId,
-						requireMatchingAuthoringGeneration([
-							resourcesResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[resourceId],
-							resourcesResponse?.resources,
-							resourcesResponse?.source_revision_set,
-						),
-					)
+					profileId!,
+					resourceId,
+					requireMatchingAuthoringGeneration([
+						resourcesResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[resourceId],
+						resourcesResponse?.resources,
+						resourcesResponse?.source_revision_set,
+					),
+				)
 				: configSuitsApi.disableResource(
-						profileId!,
-						resourceId,
-						requireMatchingAuthoringGeneration([
-							resourcesResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[resourceId],
-							resourcesResponse?.resources,
-							resourcesResponse?.source_revision_set,
-						),
-					);
+					profileId!,
+					resourceId,
+					requireMatchingAuthoringGeneration([
+						resourcesResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[resourceId],
+						resourcesResponse?.resources,
+						resourcesResponse?.source_revision_set,
+					),
+				);
 		},
 		onSuccess: () => {
 			refreshProfileCapabilitySurface();
@@ -1021,29 +1039,29 @@ export function ProfileDetailPage() {
 		}) => {
 			return enable
 				? configSuitsApi.enablePrompt(
-						profileId!,
-						promptId,
-						requireMatchingAuthoringGeneration([
-							promptsResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[promptId],
-							promptsResponse?.prompts,
-							promptsResponse?.source_revision_set,
-						),
-					)
+					profileId!,
+					promptId,
+					requireMatchingAuthoringGeneration([
+						promptsResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[promptId],
+						promptsResponse?.prompts,
+						promptsResponse?.source_revision_set,
+					),
+				)
 				: configSuitsApi.disablePrompt(
-						profileId!,
-						promptId,
-						requireMatchingAuthoringGeneration([
-							promptsResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[promptId],
-							promptsResponse?.prompts,
-							promptsResponse?.source_revision_set,
-						),
-					);
+					profileId!,
+					promptId,
+					requireMatchingAuthoringGeneration([
+						promptsResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[promptId],
+						promptsResponse?.prompts,
+						promptsResponse?.source_revision_set,
+					),
+				);
 		},
 		onSuccess: () => {
 			refreshProfileCapabilitySurface();
@@ -1085,7 +1103,6 @@ export function ProfileDetailPage() {
 		void refetchSuit();
 		refreshProfileCapabilitySurface();
 		void queryClient.refetchQueries({ queryKey: ["workflowGuide", profileId] });
-		setWorkflowGuideRefreshKey((current) => current + 1);
 	};
 	const overviewActionButtonClass =
 		"gap-2 rounded-none first:rounded-l-md last:rounded-r-md";
@@ -1202,6 +1219,7 @@ export function ProfileDetailPage() {
 	const tokenChartSource = useProfileTokenChartSource(
 		profileId,
 		enabledByComponentId,
+		{ enabled: Boolean(suit && !isWorkflowProfile) },
 	);
 
 	// Global servers for availability(connected) calculation
@@ -1375,10 +1393,10 @@ export function ProfileDetailPage() {
 		() =>
 			hasCapabilitySelection
 				? tools.filter(
-						(tool) =>
-							selectedCapabilityServerIds.has(tool.server_id) &&
-							capabilityStatusFilter(tool),
-					)
+					(tool) =>
+						selectedCapabilityServerIds.has(tool.server_id) &&
+						capabilityStatusFilter(tool),
+				)
 				: [],
 		[
 			capabilityStatusFilter,
@@ -1391,10 +1409,10 @@ export function ProfileDetailPage() {
 		() =>
 			hasCapabilitySelection
 				? resources.filter(
-						(resource) =>
-							selectedCapabilityServerIds.has(resource.server_id) &&
-							capabilityStatusFilter(resource),
-					)
+					(resource) =>
+						selectedCapabilityServerIds.has(resource.server_id) &&
+						capabilityStatusFilter(resource),
+				)
 				: [],
 		[
 			capabilityStatusFilter,
@@ -1407,10 +1425,10 @@ export function ProfileDetailPage() {
 		() =>
 			hasCapabilitySelection
 				? prompts.filter(
-						(prompt) =>
-							selectedCapabilityServerIds.has(prompt.server_id) &&
-							capabilityStatusFilter(prompt),
-					)
+					(prompt) =>
+						selectedCapabilityServerIds.has(prompt.server_id) &&
+						capabilityStatusFilter(prompt),
+				)
 				: [],
 		[
 			capabilityStatusFilter,
@@ -1423,10 +1441,10 @@ export function ProfileDetailPage() {
 		() =>
 			hasCapabilitySelection
 				? templates.filter(
-						(template) =>
-							selectedCapabilityServerIds.has(template.server_id) &&
-							capabilityStatusFilter(template),
-					)
+					(template) =>
+						selectedCapabilityServerIds.has(template.server_id) &&
+						capabilityStatusFilter(template),
+				)
 				: [],
 		[
 			capabilityStatusFilter,
@@ -1440,43 +1458,43 @@ export function ProfileDetailPage() {
 		() => [
 			...(capabilityKindMatches("tools")
 				? selectedServerTools
-						.filter((tool) =>
-							capabilityRecordMatchesSearch(
-								tool as CapabilityRecord,
-								capabilityQuery,
-							),
-						)
-						.map((tool) => capabilityKey("tools", tool.id))
+					.filter((tool) =>
+						capabilityRecordMatchesSearch(
+							tool as CapabilityRecord,
+							capabilityQuery,
+						),
+					)
+					.map((tool) => capabilityKey("tools", tool.id))
 				: []),
 			...(capabilityKindMatches("resources")
 				? selectedServerResources
-						.filter((resource) =>
-							capabilityRecordMatchesSearch(
-								resource as CapabilityRecord,
-								capabilityQuery,
-							),
-						)
-						.map((resource) => capabilityKey("resources", resource.id))
+					.filter((resource) =>
+						capabilityRecordMatchesSearch(
+							resource as CapabilityRecord,
+							capabilityQuery,
+						),
+					)
+					.map((resource) => capabilityKey("resources", resource.id))
 				: []),
 			...(capabilityKindMatches("prompts")
 				? selectedServerPrompts
-						.filter((prompt) =>
-							capabilityRecordMatchesSearch(
-								prompt as CapabilityRecord,
-								capabilityQuery,
-							),
-						)
-						.map((prompt) => capabilityKey("prompts", prompt.id))
+					.filter((prompt) =>
+						capabilityRecordMatchesSearch(
+							prompt as CapabilityRecord,
+							capabilityQuery,
+						),
+					)
+					.map((prompt) => capabilityKey("prompts", prompt.id))
 				: []),
 			...(capabilityKindMatches("templates")
 				? selectedServerTemplates
-						.filter((template) =>
-							capabilityRecordMatchesSearch(
-								template as CapabilityRecord,
-								capabilityQuery,
-							),
-						)
-						.map((template) => capabilityKey("templates", template.id))
+					.filter((template) =>
+						capabilityRecordMatchesSearch(
+							template as CapabilityRecord,
+							capabilityQuery,
+						),
+					)
+					.map((template) => capabilityKey("templates", template.id))
 				: []),
 		],
 		[
@@ -1575,29 +1593,29 @@ export function ProfileDetailPage() {
 		}) =>
 			enable
 				? configSuitsApi.enableResourceTemplate(
-						profileId!,
-						templateId,
-						requireMatchingAuthoringGeneration([
-							templatesResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[templateId],
-							templatesResponse?.templates,
-							templatesResponse?.source_revision_set,
-						),
-					)
-				: configSuitsApi.disableResourceTemplate(
-						profileId!,
-						templateId,
-						requireMatchingAuthoringGeneration([
-							templatesResponse?.authoring_generation,
-						]),
-						requireCapabilityRevisionSet(
-							[templateId],
-							templatesResponse?.templates,
-							templatesResponse?.source_revision_set,
-						),
+					profileId!,
+					templateId,
+					requireMatchingAuthoringGeneration([
+						templatesResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[templateId],
+						templatesResponse?.templates,
+						templatesResponse?.source_revision_set,
 					),
+				)
+				: configSuitsApi.disableResourceTemplate(
+					profileId!,
+					templateId,
+					requireMatchingAuthoringGeneration([
+						templatesResponse?.authoring_generation,
+					]),
+					requireCapabilityRevisionSet(
+						[templateId],
+						templatesResponse?.templates,
+						templatesResponse?.source_revision_set,
+					),
+				),
 		onSuccess: () => {
 			refreshProfileCapabilitySurface();
 			notifySuccess(
@@ -1757,7 +1775,7 @@ export function ProfileDetailPage() {
 					)}
 				</div>
 				<div className="flex flex-shrink-0 items-center gap-3">
-					{profileId ? (
+					{profileId && suit && !isWorkflowProfile ? (
 						<ProfileTokenUsageChart
 							ledgerItems={tokenChartSource.ledgerItems}
 							fallbackEstimate={tokenChartSource.fallbackEstimate}
@@ -1877,19 +1895,18 @@ export function ProfileDetailPage() {
 												</span>
 												<Badge
 													variant="secondary"
-													className={`hidden justify-self-start border px-2.5 py-0.5 leading-none min-h-[1.5rem] ${
-														suit.is_active
+													className={`hidden justify-self-start border px-2.5 py-0.5 leading-none min-h-[1.5rem] ${suit.is_active
 															? "border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/50 dark:bg-emerald-500/20 dark:text-emerald-200"
 															: "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300"
-													}`}
+														}`}
 												>
 													{suit.is_active
 														? t("profiles:detail.status.active", {
-																defaultValue: "Active",
-															})
+															defaultValue: "Active",
+														})
 														: t("profiles:detail.status.inactive", {
-																defaultValue: "Inactive",
-															})}
+															defaultValue: "Inactive",
+														})}
 												</Badge>
 
 												<span className="text-xs uppercase text-slate-500">
@@ -1966,11 +1983,11 @@ export function ProfileDetailPage() {
 														)}
 														{suit?.is_active
 															? t("profiles:detail.buttons.disable", {
-																	defaultValue: "Disable",
-																})
+																defaultValue: "Disable",
+															})
 															: t("profiles:detail.buttons.enable", {
-																	defaultValue: "Enable",
-																})}
+																defaultValue: "Enable",
+															})}
 													</Button>
 												</ButtonGroup>
 											)}
@@ -1984,7 +2001,7 @@ export function ProfileDetailPage() {
 									description={t("profiles:detail.overview.enabledAvailable", {
 										defaultValue: "enabled / available",
 									})}
-								onSelect={() => handleDetailTabChange(overviewSurfaceTab)}
+									onSelect={() => handleDetailTabChange(overviewSurfaceTab)}
 									className={DETAIL_OVERVIEW_PINNED_SECTION_CLASS}
 								/>
 							)}
@@ -2060,14 +2077,19 @@ export function ProfileDetailPage() {
 
 					{isWorkflowProfile && profileId && (
 						<TabsContent value="workflow" className={DETAIL_TAB_CONTENT_CLASS}>
-							<ProfileWorkflowGuide
-								key={workflowGuideRefreshKey}
-								profileId={profileId}
-								capabilities={workflowCapabilities}
-								capabilitiesLoading={
-									workflowCapabilityCatalogQuery.isLoading
-								}
-							/>
+							<Card className={CAPABILITY_SCROLL_CARD_CLASS}>
+								<CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+									<ProfileWorkflowGuide
+										key={workflowGuideResetKey}
+										profileId={profileId}
+										capabilities={workflowCapabilities}
+										capabilitiesLoading={
+											workflowCapabilityCatalogQuery.isLoading
+										}
+										onDirtyChange={setWorkflowGuideDirty}
+									/>
+								</CardContent>
+							</Card>
 						</TabsContent>
 					)}
 
@@ -2095,12 +2117,12 @@ export function ProfileDetailPage() {
 														serverBulk.isBulkMode
 															? bulkModeDescription(serverBulk.selectedCount)
 															: t(
-																	"profiles:detail.descriptions.capabilityServers",
-																	{
-																		defaultValue:
-																			"Select a server to manage its profile capabilities.",
-																	},
-																)
+																"profiles:detail.descriptions.capabilityServers",
+																{
+																	defaultValue:
+																		"Select a server to manage its profile capabilities.",
+																},
+															)
 													}
 													isBulkMode={serverBulk.isBulkMode}
 													onToggleBulkMode={serverBulk.toggleMode}
@@ -2170,11 +2192,10 @@ export function ProfileDetailPage() {
 														<CapsuleStripeListItem
 															key={ALL_CAPABILITY_SERVERS_ID}
 															interactive
-															className={`${PROFILE_EDITOR_SIDEBAR_ITEM_CLASS} ${
-																isAllCapabilityServersSelected
+															className={`${PROFILE_EDITOR_SIDEBAR_ITEM_CLASS} ${isAllCapabilityServersSelected
 																	? "bg-primary/10"
 																	: ""
-															}`}
+																}`}
 															onClick={() =>
 																setSelectedCapabilityServerId(
 																	ALL_CAPABILITY_SERVERS_ID,
@@ -2194,7 +2215,7 @@ export function ProfileDetailPage() {
 														>
 															<CapsuleStripeRowBody
 																lead={
-																<div className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+																	<div className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
 																		{t(
 																			"profiles:detail.labels.allServersShort",
 																			{
@@ -2333,15 +2354,15 @@ export function ProfileDetailPage() {
 																					}
 																					fallback={avatarFallback}
 																					size="sm"
-																shape="rounded"
-																className={`border ${serverAvatarClassName}`}
-																fallbackClassName={
-																	isSelected ? "bg-primary text-primary-foreground" : undefined
-																}
-																imageClassName={
-																	isSelected ? "m-1 h-6 w-6 rounded-md" : undefined
-																}
-															/>
+																					shape="rounded"
+																					className={`border ${serverAvatarClassName}`}
+																					fallbackClassName={
+																						isSelected ? "bg-primary text-primary-foreground" : undefined
+																					}
+																					imageClassName={
+																						isSelected ? "m-1 h-6 w-6 rounded-md" : undefined
+																					}
+																				/>
 																			</div>
 																		}
 																		trailing={
@@ -2380,7 +2401,7 @@ export function ProfileDetailPage() {
 																	>
 																		<div className="min-w-0">
 																			<div
-																className={serverTitleClassName}
+																				className={serverTitleClassName}
 																				title={server.name}
 																			>
 																				{server.name}
@@ -2424,35 +2445,35 @@ export function ProfileDetailPage() {
 											title={
 												isAllCapabilityServersSelected
 													? t("profiles:detail.labels.allServers", {
-															defaultValue: "All servers",
-														})
+														defaultValue: "All servers",
+													})
 													: selectedCapabilityServer
 														? selectedCapabilityServer.name
 														: t("servers:detail.overview.labels.capabilities", {
-																defaultValue: "Capabilities",
-															})
+															defaultValue: "Capabilities",
+														})
 											}
 											description={
 												isAllCapabilityServersSelected
 													? t(
-															"profiles:detail.descriptions.allCapabilityGroups",
-															{
-																defaultValue:
-																	"Manage tools, resources, prompts, and resource templates across the visible servers.",
-															},
-														)
+														"profiles:detail.descriptions.allCapabilityGroups",
+														{
+															defaultValue:
+																"Manage tools, resources, prompts, and resource templates across the visible servers.",
+														},
+													)
 													: selectedCapabilityServer
 														? t(
-																"profiles:detail.descriptions.capabilityGroups",
-																{
-																	defaultValue:
-																		"Manage tools, resources, prompts, and resource templates for the selected server.",
-																},
-															)
-														: t("profiles:detail.emptyStates.selectServer", {
+															"profiles:detail.descriptions.capabilityGroups",
+															{
 																defaultValue:
-																	"Select a server to inspect its capabilities.",
-															})
+																	"Manage tools, resources, prompts, and resource templates for the selected server.",
+															},
+														)
+														: t("profiles:detail.emptyStates.selectServer", {
+															defaultValue:
+																"Select a server to inspect its capabilities.",
+														})
 											}
 											isBulkMode={capabilityBulk.isBulkMode}
 											onToggleBulkMode={capabilityBulk.toggleMode}
@@ -2466,22 +2487,22 @@ export function ProfileDetailPage() {
 											serverFilter={
 												isAllCapabilityServersSelected
 													? {
-															label: capabilityServerFilterLabel,
-															allLabel: t(
-																"profiles:detail.filters.server.all",
-																{
-																	defaultValue: "All Servers",
-																},
-															),
-															options: visibleServers.map((server) => ({
-																value: server.id,
-																label: server.name,
-																title: server.name,
-															})),
-															selectedValues: capabilityServerFilters,
-															onClear: () => setCapabilityServerFilters([]),
-															onToggle: toggleCapabilityServerFilter,
-														}
+														label: capabilityServerFilterLabel,
+														allLabel: t(
+															"profiles:detail.filters.server.all",
+															{
+																defaultValue: "All Servers",
+															},
+														),
+														options: visibleServers.map((server) => ({
+															value: server.id,
+															label: server.name,
+															title: server.name,
+														})),
+														selectedValues: capabilityServerFilters,
+														onClear: () => setCapabilityServerFilters([]),
+														onToggle: toggleCapabilityServerFilter,
+													}
 													: undefined
 											}
 											kindFilter={{
@@ -2635,11 +2656,55 @@ export function ProfileDetailPage() {
 						>
 							{deleteSuitMutation.isPending
 								? t("profiles:detail.buttons.deleting", {
-										defaultValue: "Deleting...",
-									})
+									defaultValue: "Deleting...",
+								})
 								: t("profiles:detail.buttons.delete", {
-										defaultValue: "Delete",
-									})}
+									defaultValue: "Delete",
+								})}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			{/* Workflow Guide unsaved-changes guard */}
+			<AlertDialog
+				open={pendingWorkflowTab !== null}
+				onOpenChange={(open) => {
+					if (!open) setPendingWorkflowTab(null);
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{t("profiles:detail.workflow.guide.unsavedLeaveTitle", {
+								defaultValue: "Discard unsaved Workflow Guide changes?",
+							})}
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{t(
+								"profiles:detail.workflow.guide.unsavedLeaveDescription",
+								{
+									defaultValue:
+										"The Workflow Guide has unsaved changes. Leaving this tab will discard them.",
+								},
+							)}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>
+							{t("profiles:form.buttons.cancel", { defaultValue: "Cancel" })}
+						</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								const tab = pendingWorkflowTab;
+								setPendingWorkflowTab(null);
+								setWorkflowGuideDirty(false);
+								setWorkflowGuideResetKey((key) => key + 1);
+								if (tab) applyDetailTabChange(tab);
+							}}
+						>
+							{t("profiles:detail.workflow.guide.discardAndLeave", {
+								defaultValue: "Discard and leave",
+							})}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

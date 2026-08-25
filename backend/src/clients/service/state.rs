@@ -956,7 +956,7 @@ mod tests {
                 .expect("sqlite pool"),
         );
 
-        crate::test_helpers::prepare_config_database(pool.as_ref()).await;
+        crate::helpers::prepare_config_database(pool.as_ref()).await;
         crate::config::initialization::run_initialization(pool.as_ref())
             .await
             .expect("initialize database");
@@ -1531,7 +1531,7 @@ mod tests {
         );
         profile.id = Some("profile-custom-test".to_string());
         profile.authoring_generation = 7;
-        let profile_id = crate::test_helpers::insert_profile(service.db_pool.as_ref(), &profile).await;
+        let profile_id = crate::helpers::insert_profile(service.db_pool.as_ref(), &profile).await;
         sqlx::query("UPDATE client SET capability_source = 'custom', custom_profile_id = ? WHERE identifier = ?")
             .bind(&profile_id)
             .bind("test.custom")

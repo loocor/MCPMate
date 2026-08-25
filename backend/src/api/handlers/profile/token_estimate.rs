@@ -16,7 +16,7 @@ use crate::{
             CapabilityItem, CapabilityType,
             naming::{NamingKind, load_external_identifier},
         },
-        token_estimate,
+        estimate,
     },
 };
 
@@ -173,7 +173,7 @@ fn finalize_estimate(estimate: &mut CapTypeEstimate) {
 
 fn estimate_item_tokens(item: &CapabilityItem) -> u32 {
     serde_json::to_string(item)
-        .map(|json| token_estimate::estimate_capability_tokens(&json))
+        .map(|json| estimate::estimate_capability_tokens(&json))
         .unwrap_or(0)
 }
 
@@ -270,7 +270,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("create test database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::initialization::run_initialization(&pool)
             .await
             .expect("initialize database");

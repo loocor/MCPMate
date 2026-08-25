@@ -11,13 +11,13 @@ use crate::core::capability::management::ConsumerMaterialization;
 use crate::core::capability::materializer::{
     MaterializationCoordinator, MaterializationTrigger, SurfaceAuthoringLoader, load_default_config_mode,
 };
+use crate::core::profile::guide::{WorkflowGuideError, ensure_guide, stage_projection_in_transaction};
 use crate::core::profile::materials::{
     SkillDirectoryRename, WorkflowMaterialsError, WorkflowMaterialsService, rollback_skill_directory_rename,
 };
 use crate::core::profile::workflow::{
     WorkflowGuidanceSaveCommand, WorkflowSpecificationError, WorkflowSpecificationService,
 };
-use crate::core::profile::workflow_guide::{WorkflowGuideError, ensure_guide, stage_projection_in_transaction};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileAuthoringCommand {
@@ -858,7 +858,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         let skills_root = tempfile::tempdir().unwrap();
         let service = ProfileAuthoringService::with_skills_root(pool, skills_root.path().to_path_buf());
         let created = service
@@ -952,7 +952,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         let skills_root = tempfile::tempdir().unwrap();
         let service = ProfileAuthoringService::with_skills_root(pool.clone(), skills_root.path().to_path_buf());
         let created = service
@@ -1031,7 +1031,7 @@ mod tests {
             .connect_with(options)
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::system::settings::initialize_settings_file(&pool).await.unwrap();
         crate::system::settings::set_default_config_mode(&pool, "transparent")
             .await
@@ -1088,7 +1088,7 @@ mod tests {
             .connect_with(options)
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         for server_id in ["server-a", "server-b"] {
             sqlx::query(
                 "INSERT INTO server_config (id, name, server_type, command, enabled) VALUES (?, ?, 'stdio', '', 1)",

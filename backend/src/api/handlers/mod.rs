@@ -75,7 +75,7 @@ pub enum ApiError {
     /// Profile-scoped coded conflict.
     ProfileConflict(ProfileConflict),
     /// Workflow Guide save needs explicit reclamation confirmation.
-    WorkflowGuideReclamationRequired(crate::core::profile::workflow_guide::WorkflowGuideReclamationPlan),
+    WorkflowGuideReclamationRequired(crate::core::profile::guide::WorkflowGuideReclamationPlan),
     /// Workflow Guide save committed but managed Trash cleanup needs Repair.
     WorkflowGuideTrashCleanupPending {
         relative_paths: Vec<String>,
@@ -307,7 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn workflow_guide_reclamation_conflict_returns_structured_candidates() {
-        use crate::core::profile::workflow_guide::{
+        use crate::core::profile::guide::{
             WorkflowGuideCapability, WorkflowGuidePackageCategory, WorkflowGuidePackageFile,
             WorkflowGuideReclamationPlan,
         };

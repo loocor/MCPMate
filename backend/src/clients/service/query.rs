@@ -294,7 +294,7 @@ mod tests {
                 .await
                 .expect("sqlite pool"),
         );
-        crate::test_helpers::prepare_config_database(pool.as_ref()).await;
+        crate::helpers::prepare_config_database(pool.as_ref()).await;
         crate::config::initialization::run_initialization(pool.as_ref())
             .await
             .expect("initialize database");
@@ -328,7 +328,7 @@ mod tests {
     ) -> String {
         let mut profile = Profile::new(name.to_string(), profile_type);
         profile.is_active = is_active;
-        crate::test_helpers::insert_profile(service.db_pool.as_ref(), &profile).await
+        crate::helpers::insert_profile(service.db_pool.as_ref(), &profile).await
     }
 
     fn native_render_options(server_id: String) -> crate::clients::ClientRenderOptions {

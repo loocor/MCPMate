@@ -1,0 +1,18 @@
+[toolchain]
+channel = "1.98.0"
+components = [
+  "rustc",
+  "rust-std",
+  "cargo",
+  "clippy",
+  "rustfmt",
+]
+
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-pc-windows-gnullvm",
+  "aarch64-pc-windows-gnullvm",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]

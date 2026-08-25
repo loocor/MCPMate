@@ -13,7 +13,7 @@ runs:
   using: "composite"
   steps:
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@1.98.0
       with:
         targets: ${{ inputs.rust-target }}
 

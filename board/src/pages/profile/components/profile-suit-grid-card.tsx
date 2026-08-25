@@ -36,14 +36,16 @@ export function ProfileSuitGridCard({
 	reviewCount = 0,
 }: ProfileSuitGridCardProps) {
 	const { t } = useTranslation();
+	const isWorkflowProfile = suit.profile_mode === "workflow";
 	const profileTokenEstimateMethod = useAppStore(
 		(state) => state.dashboardSettings.profileTokenEstimateMethod,
 	);
-	const tokenSource = useProfileTokenChartSource(suit.id, enabledByComponentId);
+	const tokenSource = useProfileTokenChartSource(suit.id, enabledByComponentId, {
+		enabled: !isWorkflowProfile,
+	});
 	const profileModeLabel = t(
 		`profiles:badges.${suit.profile_mode === "workflow" ? "workflow" : "capability"}`,
 	);
-	const isWorkflowProfile = suit.profile_mode === "workflow";
 
 	return (
 		<EntityCard
@@ -56,17 +58,19 @@ export function ProfileSuitGridCard({
 			}}
 			topRightBadge={
 				<>
-					<ProfileTokenUsageChart
-						layout="chartOnly"
-						ledgerItems={tokenSource.ledgerItems}
-						fallbackEstimate={tokenSource.fallbackEstimate}
-						isLoading={tokenSource.isLoading}
-						isError={tokenSource.isError}
-						enabledByComponentId={enabledByComponentId}
-						estimateMethod={profileTokenEstimateMethod}
-						profileServerCount={profileServerCount}
-						className="-mr-1"
-					/>
+					{!isWorkflowProfile ? (
+						<ProfileTokenUsageChart
+							layout="chartOnly"
+							ledgerItems={tokenSource.ledgerItems}
+							fallbackEstimate={tokenSource.fallbackEstimate}
+							isLoading={tokenSource.isLoading}
+							isError={tokenSource.isError}
+							enabledByComponentId={enabledByComponentId}
+							estimateMethod={profileTokenEstimateMethod}
+							profileServerCount={profileServerCount}
+							className="-mr-1"
+						/>
+					) : null}
 					{reviewCount > 0 ? (
 						<Badge className="border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
 							{t("surfaceReview:badge", {

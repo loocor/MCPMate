@@ -86,7 +86,7 @@ mod tests {
     #[tokio::test]
     async fn initialize_server_tables_removes_pending_import_records() {
         let pool = setup_pool().await;
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_server_tables(&pool).await.expect("initialize tables");
         upsert_server(&pool, &build_server("serv_visible", "visible-server", false))
             .await

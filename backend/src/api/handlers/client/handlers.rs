@@ -36,19 +36,19 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-type ClientSettingsErrorResponse = (StatusCode, Json<crate::api::models::client::ClientSettingsUpdateResp>);
+type ClientSettingsErrorResponse = Box<(StatusCode, Json<crate::api::models::client::ClientSettingsUpdateResp>)>;
 
 fn client_settings_error(
     status: StatusCode,
     message: impl Into<String>,
 ) -> ClientSettingsErrorResponse {
-    (
+    Box::new((
         status,
         Json(crate::api::models::client::ClientSettingsUpdateResp::error_simple(
             "client_settings_invalid",
             &message.into(),
         )),
-    )
+    ))
 }
 
 fn build_client_capability_config_data(
@@ -71,7 +71,7 @@ fn build_client_capability_config_data(
     }
 }
 
-fn parse_inspect_existing_error(err: ConfigError) -> (StatusCode, Json<ClientConfigFileParseInspectExistingResp>) {
+fn parse_inspect_existing_error(err: ConfigError) -> Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)> {
     let status = map_config_error_status(&err);
     let response = match err {
         ConfigError::ClientNotFound { .. } => ClientConfigFileParseInspectExistingResp::error_simple(
@@ -80,7 +80,7 @@ fn parse_inspect_existing_error(err: ConfigError) -> (StatusCode, Json<ClientCon
         ),
         _ => ClientConfigFileParseInspectExistingResp::error_simple("client_config_parse_invalid", &err.to_string()),
     };
-    (status, Json(response))
+    Box::new((status, Json(response)))
 }
 
 fn should_include_default_client(descriptor: &ClientDescriptor) -> bool {
@@ -98,15 +98,15 @@ fn should_include_default_client(descriptor: &ClientDescriptor) -> bool {
 pub async fn config_file_parse_inspect(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<ClientConfigFileParseInspectReq>,
-) -> Result<Json<ClientConfigFileParseInspectResp>, (StatusCode, Json<ClientConfigFileParseInspectResp>)> {
+) -> Result<Json<ClientConfigFileParseInspectResp>, Box<(StatusCode, Json<ClientConfigFileParseInspectResp>)>> {
     let service = get_client_service(&app_state).map_err(|status| {
-        (
+        Box::new((
             status,
             Json(ClientConfigFileParseInspectResp::error_simple(
                 "client_config_parse_unavailable",
                 "Client service unavailable",
             )),
-        )
+        ))
     })?;
     let draft = request.config_file_parse.as_ref().map(parse_rule_from_api_data);
     let inspection = service
@@ -114,13 +114,13 @@ pub async fn config_file_parse_inspect(
         .await
         .map_err(|err| {
             let status = map_config_error_status(&err);
-            (
+            Box::new((
                 status,
                 Json(ClientConfigFileParseInspectResp::error_simple(
                     "client_config_parse_invalid",
                     &err.to_string(),
                 )),
-            )
+            ))
         })?;
 
     Ok(Json(ClientConfigFileParseInspectResp::success(
@@ -131,16 +131,18 @@ pub async fn config_file_parse_inspect(
 pub async fn config_file_parse_inspect_existing(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<ClientConfigFileParseInspectExistingReq>,
-) -> Result<Json<ClientConfigFileParseInspectExistingResp>, (StatusCode, Json<ClientConfigFileParseInspectExistingResp>)>
-{
+) -> Result<
+    Json<ClientConfigFileParseInspectExistingResp>,
+    Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)>,
+> {
     let service = get_client_service(&app_state).map_err(|status| {
-        (
+        Box::new((
             status,
             Json(ClientConfigFileParseInspectExistingResp::error_simple(
                 "client_config_parse_unavailable",
                 "Client service unavailable",
             )),
-        )
+        ))
     })?;
     let draft = request.config_file_parse.as_ref().map(parse_rule_from_api_data);
     let inspection = service
@@ -1607,7 +1609,7 @@ mod tests {
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         initialize_server_tables(&db_pool).await.expect("init server tables");
         initialize_client_table(&db_pool).await.expect("init client table");
         crate::config::database::initialize_capability_catalog(&db_pool)
@@ -1867,7 +1869,7 @@ mod tests {
         name: &str,
     ) -> String {
         let profile = Profile::new(name.to_string(), ProfileType::Shared);
-        crate::test_helpers::insert_profile(pool, &profile).await
+        crate::helpers::insert_profile(pool, &profile).await
     }
 
     async fn insert_active_shared_profile(
@@ -1877,7 +1879,7 @@ mod tests {
         let mut profile = Profile::new(name.to_string(), ProfileType::Shared);
         profile.is_active = true;
         profile.is_default = true;
-        crate::test_helpers::insert_profile(pool, &profile).await
+        crate::helpers::insert_profile(pool, &profile).await
     }
 
     async fn insert_unify_server(
@@ -2847,7 +2849,7 @@ mod tests {
             created_at: None,
             updated_at: None,
         };
-        crate::test_helpers::insert_profile(&context.db_pool, &profile).await;
+        crate::helpers::insert_profile(&context.db_pool, &profile).await;
         let _ = update_capability_config(
             State(context.app_state.clone()),
             Json(ClientCapabilityConfigReq {
@@ -3022,7 +3024,7 @@ mod tests {
         )
         .await;
 
-        let (status, Json(response)) = result.expect_err("alias transport key should be rejected");
+        let (status, Json(response)) = *result.expect_err("alias transport key should be rejected");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(!response.success);
         let error = response.error.expect("error details");
@@ -4038,7 +4040,7 @@ mod tests {
         )
         .await;
 
-        let (status, Json(response)) = result.expect_err("missing local config target should fail");
+        let (status, Json(response)) = *result.expect_err("missing local config target should fail");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let error = response.error.expect("error payload");
         assert!(error.message.contains("does not exist"));
@@ -4445,7 +4447,7 @@ mod tests {
 
         std::fs::set_permissions(&kv_dir, original_permissions).expect("restore permissions");
 
-        let (status, Json(response)) = result.expect_err("read-only directory target should fail");
+        let (status, Json(response)) = *result.expect_err("read-only directory target should fail");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let error = response.error.expect("error payload");
         assert!(error.message.contains("not writable"));

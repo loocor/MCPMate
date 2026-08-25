@@ -113,7 +113,7 @@ mod tests {
             .connect_with(options)
             .await
             .expect("connect");
-        crate::test_helpers::prepare_audit_database(&pool).await;
+        crate::helpers::prepare_audit_database(&pool).await;
         let store = Arc::new(AuditStore::new(pool));
         AuditService::new(store).await.expect("audit service")
     }

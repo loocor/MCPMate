@@ -1298,7 +1298,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_server_tables(&pool).await.expect("init tables");
         initialize_llm_tables(&pool).await.expect("init llm tables");
         OAuthManager::new(pool)
@@ -1315,7 +1315,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_server_tables(&pool).await.expect("init tables");
         initialize_llm_tables(&pool).await.expect("init llm tables");
         let store = Arc::new(

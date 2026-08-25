@@ -107,7 +107,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("open test database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         sqlx::query("INSERT INTO server_config (id, name, server_type) VALUES ('server-a', 'A', 'stdio')")
             .execute(&pool)
             .await
@@ -137,7 +137,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("open test database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         let server = Server {
             id: Some("server-b".into()),
             name: "B".into(),
@@ -220,7 +220,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("open test database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         let server = Server {
             id: Some("server-c".into()),
             name: "C".into(),

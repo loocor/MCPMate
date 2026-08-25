@@ -85,7 +85,7 @@ jobs:
         run: bun packaging/desktop/release-tag.ts --tag "${{ inputs.release_tag }}"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+        uses: dtolnay/rust-toolchain@1.98.0
 
       - name: Install system dependencies
         run: |

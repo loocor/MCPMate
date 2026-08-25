@@ -414,7 +414,7 @@ mod tests {
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         initialize_server_tables(&db_pool).await.expect("init server tables");
         initialize_profile_tables(&db_pool).await.expect("init profile tables");
         initialize_client_table(&db_pool).await.expect("init client table");

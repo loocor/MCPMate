@@ -1,6 +1,11 @@
 // MCPMate Proxy API handlers for MCP server CRUD operations
 // Contains handler functions for creating, updating, and importing servers
 
+#![expect(
+    clippy::result_large_err,
+    reason = "Propagates CapabilityReadError from capability discovery."
+)]
+
 use super::{basic::load_server_transport_validity, common, shared::*};
 use crate::api::models::server::{
     ServerCapabilityDiscoveryData, ServerCreateReq, ServerDeleteReq, ServerDetailsData, ServerDetailsResp,
@@ -1880,7 +1885,7 @@ for line in sys.stdin:
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         crate::config::initialization::run_initialization(&db_pool)
             .await
             .expect("initialize database");

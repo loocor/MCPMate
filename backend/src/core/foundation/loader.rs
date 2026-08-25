@@ -416,7 +416,7 @@ mod tests {
         },
     };
     use crate::core::secrets::store::{LocalSecretStore, SecretCreateInput, SecretKindInput};
-    use crate::test_helpers::oauth_secret_origin;
+    use crate::helpers::oauth_secret_origin;
     use chrono::{Duration, Utc};
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use tempfile::TempDir;
@@ -437,7 +437,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         run_initialization(&pool).await.expect("initialize schema");
         let db_path = temp_dir.path().join("test.db");
 

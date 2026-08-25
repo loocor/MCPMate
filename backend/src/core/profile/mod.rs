@@ -17,13 +17,14 @@
 
 pub mod authoring;
 pub mod config;
+pub mod guide;
 pub mod materials;
 pub mod merge;
+pub mod projection;
 pub mod service;
 pub mod types;
 pub mod visibility;
 pub mod workflow;
-pub mod workflow_guide;
 
 // Re-export core types and services
 pub use config::ConfigApplicationStateManager;

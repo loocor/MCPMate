@@ -373,7 +373,7 @@ mod tests {
         CachedPromptInfo, CachedResourceInfo, CachedResourceTemplateInfo, CachedToolInfo,
     };
     use crate::core::secrets::store::{SecretCreateInput, SecretKindInput};
-    use crate::test_helpers::oauth_secret_origin;
+    use crate::helpers::oauth_secret_origin;
     use chrono::{Duration, Utc};
     use tempfile::TempDir;
     use wiremock::{
@@ -391,7 +391,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_server_tables(&pool).await.expect("init server tables");
         pool
     }
