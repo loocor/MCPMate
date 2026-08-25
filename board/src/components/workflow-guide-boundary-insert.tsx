@@ -20,8 +20,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
   type ReactNode,
-  type RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -144,6 +144,7 @@ export function GuideBoundaryInsert({
   >("meta_on_demand");
   const [capabilityGuide, setCapabilityGuide] = useState("");
   const packageCategory = packageCategoryForInsert(activeInsert);
+  const requestPending = creatingExternalDocument || creatingPackageFile;
   const visibleFiles = files.filter(
     (file) =>
       file.category === packageCategory &&
@@ -151,6 +152,7 @@ export function GuideBoundaryInsert({
   );
 
   const resetInsert = () => {
+    if (requestPending) return;
     setActiveInsert(null);
     setExternalDocumentTitle("");
     setPackageTitle("");
@@ -161,6 +163,7 @@ export function GuideBoundaryInsert({
   };
 
   const closeInsert = () => {
+    if (requestPending) return;
     resetInsert();
     onExpandedChange(false);
   };
@@ -189,13 +192,13 @@ export function GuideBoundaryInsert({
   useEffect(() => {
     if (!expanded) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || requestPending) return;
       event.preventDefault();
       onExpandedChange(false);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [expanded, onExpandedChange]);
+  }, [expanded, onExpandedChange, requestPending]);
 
   if (!expanded) {
     return (
@@ -240,6 +243,7 @@ export function GuideBoundaryInsert({
       {activeInsert === null ? (
         <div className={COMPOSER_SHELL_CLASS}>
           <GuideComposerHeader
+            busy={requestPending}
             onClose={closeInsert}
             title={t("profiles:detail.workflow.guide.insert", {
               defaultValue: "Insert",
@@ -279,6 +283,7 @@ export function GuideBoundaryInsert({
         </div>
       ) : (
         <InsertComposerShell
+          busy={requestPending}
           actions={
             activeInsert === "capability" ? (
               <Button
@@ -404,12 +409,14 @@ export function GuideBoundaryInsert({
 
 function InsertComposerShell({
   title,
+  busy = false,
   onBack,
   onClose,
   children,
   actions,
 }: {
   title: string;
+  busy?: boolean;
   onBack: () => void;
   onClose: () => void;
   children: ReactNode;
@@ -420,6 +427,7 @@ function InsertComposerShell({
     <div className={COMPOSER_SHELL_CLASS}>
       <GuideComposerHeader
         actions={actions}
+        busy={busy}
         onBack={onBack}
         onClose={onClose}
         title={title}
@@ -434,6 +442,7 @@ function InsertComposerShell({
 
 export function GuideComposerHeader({
   title,
+  busy = false,
   onBack,
   onClose,
   onTitleClick,
@@ -443,6 +452,7 @@ export function GuideComposerHeader({
   showClose = true,
 }: {
   title: string;
+  busy?: boolean;
   onBack?: () => void;
   onClose: () => void;
   onTitleClick?: () => void;
@@ -458,6 +468,7 @@ export function GuideComposerHeader({
         <Button
           aria-label={backLabel}
           className={cn("h-7 shrink-0 px-0", GUIDE_ICON_BUTTON_CLASS)}
+          disabled={busy}
           onClick={onBack}
           size="sm"
           type="button"
@@ -490,6 +501,7 @@ export function GuideComposerHeader({
             })
           }
           className={cn("h-7 w-7 shrink-0", GUIDE_ICON_BUTTON_CLASS)}
+          disabled={busy}
           onClick={onClose}
           size="icon"
           type="button"
@@ -512,7 +524,7 @@ function GuideAutosizeTextarea({
 }: {
   ariaLabel: string;
   autoFocus?: boolean;
-  editorRef?: RefObject<HTMLTextAreaElement | null>;
+  editorRef?: MutableRefObject<HTMLTextAreaElement | null>;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
@@ -527,7 +539,6 @@ function GuideAutosizeTextarea({
     const editor = localRef.current;
     if (!editor) return;
     const fit = () => fitGuideAutosizeTextarea(editor);
-    fit();
     const scroller = editor.closest("[data-card-list-scroll]");
     const observer = new ResizeObserver(fit);
     if (scroller instanceof HTMLElement) {
@@ -542,6 +553,10 @@ function GuideAutosizeTextarea({
       }
       window.removeEventListener("resize", fit);
     };
+  }, []);
+  useLayoutEffect(() => {
+    const editor = localRef.current;
+    if (editor) fitGuideAutosizeTextarea(editor);
   }, [value]);
   return (
     <Textarea
@@ -578,7 +593,7 @@ export function GuideCapabilityFields({
   onNameChange: (name: string, capability?: WorkflowCapabilityOption) => void;
   onExposureChange: (value: "direct" | "meta_on_demand") => void;
   onGuideChange?: (value: string) => void;
-  editorRef?: RefObject<HTMLTextAreaElement | null>;
+  editorRef?: MutableRefObject<HTMLTextAreaElement | null>;
   autoFocus?: boolean;
   showGuide?: boolean;
 }) {
