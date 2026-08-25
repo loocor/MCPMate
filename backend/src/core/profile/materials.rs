@@ -156,12 +156,14 @@ pub(crate) struct StagedSkillDefinition {
     staged_previous: Option<PathBuf>,
 }
 
-pub(crate) struct StagedPackageFile {
+#[doc(hidden)]
+pub struct StagedPackageFile {
     destination: PathBuf,
     staged_previous: Option<PathBuf>,
 }
 
-pub(crate) struct PackageFileDeletionLease {
+#[doc(hidden)]
+pub struct PackageFileDeletionLease {
     destination: PathBuf,
     leased: Option<PathBuf>,
 }
@@ -372,7 +374,8 @@ impl WorkflowMaterialsService {
         validate_skill_name(skill_name)
     }
 
-    pub(crate) async fn lock_skill_package(
+    #[doc(hidden)]
+    pub async fn lock_skill_package(
         &self,
         skill_name: &str,
     ) -> Result<tokio::sync::OwnedMutexGuard<()>, WorkflowMaterialsError> {
@@ -1073,7 +1076,8 @@ impl WorkflowMaterialsService {
         })
     }
 
-    pub(crate) async fn stage_package_file_bytes(
+    #[doc(hidden)]
+    pub async fn stage_package_file_bytes(
         &self,
         skill_name: &str,
         relative_path: &str,
@@ -1111,7 +1115,8 @@ impl WorkflowMaterialsService {
         })
     }
 
-    pub(crate) async fn stage_package_file_deletion_lease(
+    #[doc(hidden)]
+    pub async fn stage_package_file_deletion_lease(
         &self,
         skill_name: &str,
         relative_path: &str,
@@ -1941,9 +1946,12 @@ fn validate_skill_name(skill_name: &str) -> Result<(), WorkflowMaterialsError> {
 }
 
 fn storage_directory_for_extension(extension: &str) -> &'static str {
-    if matches!(extension, "js" | "mjs" | "cjs" | "py") {
+    if matches!(extension, "js" | "mjs" | "cjs" | "py" | "sh" | "bat") {
         "scripts"
-    } else if matches!(extension, "pdf" | "docx" | "xlsx") {
+    } else if matches!(
+        extension,
+        "pdf" | "docx" | "xlsx" | "png" | "jpg" | "jpeg" | "webp" | "svg" | "gif" | "ico" | "csv" | "sql"
+    ) {
         "assets"
     } else {
         "references"
@@ -2230,9 +2238,8 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<(), WorkflowMaterials
 fn allowed_extension(filename: &str) -> Option<String> {
     let extension = Path::new(filename).extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
-        "md" | "js" | "mjs" | "cjs" | "py" | "pdf" | "json" | "yaml" | "yml" | "toml" | "docx" | "xlsx" => {
-            Some(extension)
-        }
+        "md" | "js" | "mjs" | "cjs" | "py" | "sh" | "bat" | "pdf" | "json" | "yaml" | "yml" | "toml" | "docx"
+        | "xlsx" | "png" | "jpg" | "jpeg" | "webp" | "svg" | "gif" | "ico" | "csv" | "sql" => Some(extension),
         _ => None,
     }
 }
@@ -2240,7 +2247,7 @@ fn allowed_extension(filename: &str) -> Option<String> {
 fn is_text_extension(extension: &str) -> bool {
     matches!(
         extension,
-        "md" | "js" | "mjs" | "cjs" | "py" | "json" | "yaml" | "yml" | "toml"
+        "md" | "js" | "mjs" | "cjs" | "py" | "sh" | "bat" | "json" | "yaml" | "yml" | "toml" | "csv" | "sql" | "svg"
     )
 }
 
@@ -2401,6 +2408,17 @@ mod tests {
             "config.toml",
             "document.docx",
             "sheet.xlsx",
+            "setup.sh",
+            "run.bat",
+            "icon.png",
+            "photo.jpg",
+            "photo.jpeg",
+            "preview.webp",
+            "mark.svg",
+            "anim.gif",
+            "app.ico",
+            "rows.csv",
+            "schema.sql",
         ] {
             assert!(allowed_extension(filename).is_some(), "{filename}");
         }
@@ -2574,7 +2592,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("open in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         sqlx::query(
             "INSERT INTO profile (id, name, description, type, role, profile_mode)
              VALUES ('workflow-profile', 'Workflow', '', 'shared', 'user', 'workflow')",
@@ -2696,7 +2714,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         sqlx::query(
             "INSERT INTO profile (id, name, description, type, role, profile_mode) VALUES ('profile-a', 'Profile A', '', 'shared', 'user', 'workflow')",
         )
@@ -2813,7 +2831,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         sqlx::query(
             "INSERT INTO profile (id, name, description, type, role, profile_mode) VALUES ('profile-a', 'Profile A', '', 'shared', 'user', 'workflow')",
         )
@@ -2876,7 +2894,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         sqlx::query(
             "INSERT INTO profile (id, name, description, type, role, profile_mode) VALUES ('profile-a', 'Profile A', '', 'shared', 'user', 'workflow')",
         )

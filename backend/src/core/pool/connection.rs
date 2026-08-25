@@ -1949,7 +1949,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         run_initialization(&pool).await.expect("initialize schema");
         pool
     }

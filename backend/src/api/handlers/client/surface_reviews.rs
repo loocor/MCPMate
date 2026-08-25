@@ -1360,7 +1360,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("sqlite pool");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("server schema");

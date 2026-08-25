@@ -1885,7 +1885,7 @@ for line in sys.stdin:
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         crate::config::initialization::run_initialization(&db_pool)
             .await
             .expect("initialize database");

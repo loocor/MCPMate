@@ -71,9 +71,7 @@ fn build_client_capability_config_data(
     }
 }
 
-fn parse_inspect_existing_error(
-    err: ConfigError,
-) -> Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)> {
+fn parse_inspect_existing_error(err: ConfigError) -> Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)> {
     let status = map_config_error_status(&err);
     let response = match err {
         ConfigError::ClientNotFound { .. } => ClientConfigFileParseInspectExistingResp::error_simple(
@@ -133,8 +131,10 @@ pub async fn config_file_parse_inspect(
 pub async fn config_file_parse_inspect_existing(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<ClientConfigFileParseInspectExistingReq>,
-) -> Result<Json<ClientConfigFileParseInspectExistingResp>, Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)>>
-{
+) -> Result<
+    Json<ClientConfigFileParseInspectExistingResp>,
+    Box<(StatusCode, Json<ClientConfigFileParseInspectExistingResp>)>,
+> {
     let service = get_client_service(&app_state).map_err(|status| {
         Box::new((
             status,
@@ -1609,7 +1609,7 @@ mod tests {
             .await
             .expect("enable foreign keys");
 
-        crate::test_helpers::prepare_config_database(&db_pool).await;
+        crate::helpers::prepare_config_database(&db_pool).await;
         initialize_server_tables(&db_pool).await.expect("init server tables");
         initialize_client_table(&db_pool).await.expect("init client table");
         crate::config::database::initialize_capability_catalog(&db_pool)
@@ -1869,7 +1869,7 @@ mod tests {
         name: &str,
     ) -> String {
         let profile = Profile::new(name.to_string(), ProfileType::Shared);
-        crate::test_helpers::insert_profile(pool, &profile).await
+        crate::helpers::insert_profile(pool, &profile).await
     }
 
     async fn insert_active_shared_profile(
@@ -1879,7 +1879,7 @@ mod tests {
         let mut profile = Profile::new(name.to_string(), ProfileType::Shared);
         profile.is_active = true;
         profile.is_default = true;
-        crate::test_helpers::insert_profile(pool, &profile).await
+        crate::helpers::insert_profile(pool, &profile).await
     }
 
     async fn insert_unify_server(
@@ -2849,7 +2849,7 @@ mod tests {
             created_at: None,
             updated_at: None,
         };
-        crate::test_helpers::insert_profile(&context.db_pool, &profile).await;
+        crate::helpers::insert_profile(&context.db_pool, &profile).await;
         let _ = update_capability_config(
             State(context.app_state.clone()),
             Json(ClientCapabilityConfigReq {

@@ -1136,7 +1136,7 @@ mod tests {
             .await
             .expect("sqlite pool");
 
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_server_tables(&pool).await.expect("init server tables");
         initialize_client_table(&pool).await.expect("init client table");
         crate::config::database::initialize_capability_catalog(&pool)
@@ -1167,7 +1167,7 @@ mod tests {
     ) -> String {
         let mut profile = Profile::new(name.to_string(), profile_type);
         profile.is_active = is_active;
-        crate::test_helpers::insert_profile(&db.pool, &profile).await
+        crate::helpers::insert_profile(&db.pool, &profile).await
     }
 
     async fn insert_server(

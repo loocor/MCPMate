@@ -446,7 +446,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::initialization::run_initialization(&pool)
             .await
             .expect("initialize database");

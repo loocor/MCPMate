@@ -10,6 +10,7 @@
 //! - proxy: proxy core
 
 pub mod capability;
+pub mod estimate;
 pub mod events;
 pub mod foundation;
 pub mod models;
@@ -18,7 +19,6 @@ pub mod pool;
 pub mod profile;
 pub mod proxy;
 pub mod secrets;
-pub mod token_estimate;
 pub mod transport;
 
 pub use events::{

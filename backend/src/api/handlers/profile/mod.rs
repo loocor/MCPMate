@@ -172,7 +172,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::system::settings::initialize_settings_file(&pool).await.unwrap();
         sqlx::query(
             "INSERT INTO profile (id, name, type, role, is_active, authoring_generation)

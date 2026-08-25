@@ -414,7 +414,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         run_initialization(&pool).await.expect("initialize schema");
         sqlx::query("INSERT INTO secure_store_provider_config (id, provider_mode) VALUES (1, 'local_file')")
             .execute(&pool)

@@ -190,7 +190,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect sqlite");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         initialize_llm_tables(&pool).await.expect("init llm tables");
         pool
     }

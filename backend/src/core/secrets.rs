@@ -538,7 +538,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("enable foreign keys");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");

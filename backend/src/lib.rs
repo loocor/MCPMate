@@ -12,7 +12,7 @@ pub mod runtime;
 pub mod system;
 
 #[cfg(test)]
-pub mod test_helpers;
+pub mod helpers;
 
 // Re-export FFI types for easier access
 #[cfg(feature = "interop")]

@@ -1684,7 +1684,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");
@@ -1951,7 +1951,7 @@ mod tests {
             .connect_with(connect())
             .await
             .expect("open first database instance");
-        crate::test_helpers::prepare_config_database(&first_pool).await;
+        crate::helpers::prepare_config_database(&first_pool).await;
         crate::config::initialization::run_initialization(&first_pool)
             .await
             .expect("initialize first database instance");

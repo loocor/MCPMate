@@ -636,7 +636,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");

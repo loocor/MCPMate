@@ -16,6 +16,11 @@ use mcpmate::{
         pool::UpstreamConnectionPool,
         profile::{
             authoring::{ProfileAuthoringCommand, ProfileAuthoringService},
+            guide::{
+                WorkflowGuideError, WorkflowGuidePackageCategory, WorkflowGuidePackageFileSaveCommand,
+                WorkflowGuidePreviewCommand, WorkflowGuideReclamationConfirmation, WorkflowGuideSaveCommand,
+                WorkflowGuideService,
+            },
             materials::{
                 WorkflowMaterialKind, WorkflowMaterialSaveCommand, WorkflowMaterialsReorderCommand,
                 WorkflowMaterialsService, WorkflowStepMaterialsSaveCommand,
@@ -23,11 +28,6 @@ use mcpmate::{
             workflow::{
                 WorkflowBindingCommand, WorkflowBindingPolicy, WorkflowBindingValidation, WorkflowSpecificationError,
                 WorkflowSpecificationSaveCommand, WorkflowSpecificationService, WorkflowStepCommand,
-            },
-            workflow_guide::{
-                WorkflowGuideError, WorkflowGuidePackageCategory, WorkflowGuidePackageFileSaveCommand,
-                WorkflowGuidePreviewCommand, WorkflowGuideReclamationConfirmation, WorkflowGuideSaveCommand,
-                WorkflowGuideService,
             },
         },
         proxy::ProxyServer,

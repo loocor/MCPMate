@@ -11,7 +11,7 @@ use crate::{
         WorkflowGuideRepairReq, WorkflowGuideSaveData, WorkflowGuideSaveReq, WorkflowGuideSaveResp,
         WorkflowGuideViewData, WorkflowGuideViewResp,
     },
-    core::profile::workflow_guide::{
+    core::profile::guide::{
         WorkflowGuideError, WorkflowGuidePackageCategory, WorkflowGuidePackageFileSaveCommand,
         WorkflowGuidePreviewCommand, WorkflowGuideReclamationConfirmation, WorkflowGuideSaveCommand,
         WorkflowGuideService,
@@ -191,12 +191,10 @@ impl From<crate::api::models::profile::WorkflowGuideReclamationConfirmationReq>
             package_files: value
                 .package_files
                 .into_iter()
-                .map(
-                    |file| crate::core::profile::workflow_guide::WorkflowGuidePackageFileRevision {
-                        package_file_id: file.package_file_id,
-                        file_revision: file.file_revision,
-                    },
-                )
+                .map(|file| crate::core::profile::guide::WorkflowGuidePackageFileRevision {
+                    package_file_id: file.package_file_id,
+                    file_revision: file.file_revision,
+                })
                 .collect(),
             capability_names: value.capability_names,
         }

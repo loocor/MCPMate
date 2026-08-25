@@ -6,8 +6,6 @@
 
 use std::sync::OnceLock;
 
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::Deserialize;
 
 use crate::common::json5_config::{load_json5_object_from_path, parse_json5_object, resolve_env_config_override};
@@ -60,12 +58,8 @@ pub struct SkillsProjectionConfig {
     pub compatibility: String,
 }
 
-static GLUED_HEADING: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"([^\n#])(#{1,6}\s+)").expect("valid glued Markdown heading regex"));
-static HEADING_NEEDS_BLANK_BEFORE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?m)([^\n])\n(#{1,6}\s+)").expect("valid Markdown heading blank-line regex"));
-
 static PROJECTION_CONFIG: OnceLock<ProjectionConfig> = OnceLock::new();
+const SKILL_COMPATIBILITY_MAX_CHARS: usize = 500;
 
 pub fn projection_config() -> &'static ProjectionConfig {
     PROJECTION_CONFIG.get_or_init(|| {
@@ -80,18 +74,151 @@ pub fn interpolate(
     template: &str,
     values: &[(&str, &str)],
 ) -> String {
-    let mut output = template.to_string();
-    for (key, value) in values {
-        output = output.replace(&format!("{{{key}}}"), value);
+    let mut output = String::new();
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        output.push_str(&rest[..start]);
+        rest = &rest[start + 1..];
+        if let Some(end) = rest.find('}') {
+            let key = &rest[..end];
+            if let Some((_, value)) = values.iter().find(|(candidate, _)| *candidate == key) {
+                output.push_str(value);
+                rest = &rest[end + 1..];
+                continue;
+            }
+        }
+        output.push('{');
     }
+    output.push_str(rest);
     output
 }
 
 pub fn normalize_markdown_heading_boundaries(markdown: &str) -> String {
-    let separated = GLUED_HEADING.replace_all(markdown, "$1\n$2");
-    HEADING_NEEDS_BLANK_BEFORE
-        .replace_all(&separated, "$1\n\n$2")
-        .into_owned()
+    let mut output = String::new();
+    let mut fence: Option<(char, usize)> = None;
+    let mut previous_was_content = false;
+
+    for line in markdown.split_inclusive('\n') {
+        let (content, newline) = match line.strip_suffix('\n') {
+            Some(content) => (content, "\n"),
+            None => (line, ""),
+        };
+
+        if let Some((delimiter, length)) = fence {
+            output.push_str(content);
+            output.push_str(newline);
+            if closes_markdown_fence(content, delimiter, length) {
+                fence = None;
+            }
+            previous_was_content = true;
+            continue;
+        }
+
+        if let Some(opener) = markdown_fence_opener(content) {
+            output.push_str(content);
+            output.push_str(newline);
+            fence = Some(opener);
+            previous_was_content = true;
+            continue;
+        }
+
+        if let Some((before, heading)) = split_glued_atx_heading(content) {
+            if !before.is_empty() {
+                output.push_str(before);
+                output.push_str("\n\n");
+            } else if previous_was_content {
+                ensure_blank_line_before_heading(&mut output);
+            }
+            output.push_str(heading);
+            output.push_str(newline);
+            previous_was_content = false;
+            continue;
+        }
+
+        if previous_was_content && is_atx_heading_line(content) {
+            ensure_blank_line_before_heading(&mut output);
+            output.push_str(content);
+            output.push_str(newline);
+            previous_was_content = false;
+            continue;
+        }
+
+        output.push_str(content);
+        output.push_str(newline);
+        previous_was_content = !content.trim().is_empty() && !is_atx_heading_line(content);
+    }
+
+    output
+}
+
+fn ensure_blank_line_before_heading(output: &mut String) {
+    if output.ends_with("\n\n") || output.is_empty() {
+        return;
+    }
+    if output.ends_with('\n') {
+        output.push('\n');
+        return;
+    }
+    output.push_str("\n\n");
+}
+
+fn markdown_fence_opener(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start();
+    let delimiter = trimmed.chars().next()?;
+    if delimiter != '`' && delimiter != '~' {
+        return None;
+    }
+    let length = trimmed.chars().take_while(|character| *character == delimiter).count();
+    (length >= 3).then_some((delimiter, length))
+}
+
+fn closes_markdown_fence(
+    line: &str,
+    delimiter: char,
+    length: usize,
+) -> bool {
+    let trimmed = line.trim_start();
+    let close_length = trimmed.chars().take_while(|character| *character == delimiter).count();
+    close_length >= length && trimmed[close_length..].trim().is_empty()
+}
+
+fn is_atx_heading_line(line: &str) -> bool {
+    atx_heading_level(line.trim_start()).is_some()
+}
+
+fn atx_heading_level(trimmed: &str) -> Option<usize> {
+    let level = trimmed.chars().take_while(|character| *character == '#').count();
+    if !(1..=6).contains(&level) || trimmed.as_bytes().get(level) != Some(&b' ') {
+        return None;
+    }
+    let text = trimmed[level..].trim();
+    (!text.is_empty()).then_some(level)
+}
+
+fn split_glued_atx_heading(line: &str) -> Option<(&str, &str)> {
+    let bytes = line.as_bytes();
+    let mut index = 1;
+    while index < bytes.len() {
+        if bytes[index] != b'#' {
+            index += 1;
+            continue;
+        }
+        let predecessor = line[..index].chars().next_back()?;
+        if predecessor.is_whitespace()
+            || predecessor == '#'
+            || predecessor.is_ascii_alphanumeric()
+            || predecessor == '_'
+        {
+            index += 1;
+            continue;
+        }
+        if atx_heading_level(&line[index..]).is_none() {
+            index += 1;
+            continue;
+        }
+        return Some((&line[..index], &line[index..]));
+    }
+    None
 }
 
 pub fn yaml_scalar(value: &str) -> String {
@@ -176,10 +303,20 @@ pub fn skill_compatibility(server_names: &[String]) -> Option<String> {
         return None;
     }
     let servers = server_names.join(", ");
-    Some(interpolate(
+    Some(bound_compatibility_text(interpolate(
         &projection_config().skills.compatibility,
         &[("servers", servers.as_str())],
-    ))
+    )))
+}
+
+fn bound_compatibility_text(value: String) -> String {
+    if value.chars().count() <= SKILL_COMPATIBILITY_MAX_CHARS {
+        return value;
+    }
+    let keep = SKILL_COMPATIBILITY_MAX_CHARS.saturating_sub(3);
+    let mut truncated: String = value.chars().take(keep).collect();
+    truncated.push_str("...");
+    truncated
 }
 
 fn default_projection_config() -> ProjectionConfig {
@@ -191,7 +328,9 @@ fn default_projection_config() -> ProjectionConfig {
 ///
 /// Override failures return an error; callers should fall back to [`default_projection_config`].
 fn load_projection_config() -> anyhow::Result<ProjectionConfig> {
-    if let Some(path) = resolve_env_config_override("MCPMATE_PROJECTION_CONFIG", "Create PathService for projection config")? {
+    if let Some(path) =
+        resolve_env_config_override("MCPMATE_PROJECTION_CONFIG", "Create PathService for projection config")?
+    {
         return load_json5_object_from_path(&path, PROJECTION_CONFIG_LABEL);
     }
     parse_projection_config(BUNDLED_PROJECTION_CONFIG, "bundled projection.json5")
@@ -261,6 +400,16 @@ mod tests {
     }
 
     #[test]
+    fn interpolate_does_not_rewrite_placeholders_inside_values() {
+        let body = capability_item_body(
+            "server://docs/{guide}",
+            "Then capture.",
+            super::super::workflow::WorkflowBindingPolicy::Direct,
+        );
+        assert_eq!(body, "`server://docs/{guide}` (direct): Then capture.");
+    }
+
+    #[test]
     fn normalizes_glued_markdown_headings() {
         assert_eq!(
             normalize_markdown_heading_boundaries("Intro line.## Goal\n\nBody"),
@@ -271,6 +420,14 @@ mod tests {
                 "Use Playwright MCP to take a screenshot of the specified URL.\n## Goal\n\n- item"
             ),
             "Use Playwright MCP to take a screenshot of the specified URL.\n\n## Goal\n\n- item"
+        );
+        assert_eq!(
+            normalize_markdown_heading_boundaries("C# stays prose\n"),
+            "C# stays prose\n"
+        );
+        assert_eq!(
+            normalize_markdown_heading_boundaries("```\n# stays a comment\n```\n"),
+            "```\n# stays a comment\n```\n"
         );
     }
 
@@ -293,5 +450,13 @@ mod tests {
             Some("Requires Playwright via MCPMate.".to_string())
         );
         assert_eq!(skill_compatibility(&[]), None);
+    }
+
+    #[test]
+    fn truncates_skill_compatibility_to_five_hundred_characters() {
+        let servers = vec!["Alpha".repeat(80), "Beta".repeat(80), "Gamma".repeat(80)];
+        let compatibility = skill_compatibility(&servers).expect("compatibility");
+        assert_eq!(compatibility.chars().count(), 500);
+        assert!(compatibility.ends_with("..."));
     }
 }

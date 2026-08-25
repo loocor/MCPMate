@@ -100,11 +100,7 @@ impl CapabilityReadError {
     }
 
     pub(crate) fn connection_timeout_ms(&self) -> Option<u128> {
-        if let Self::CleanupFailed {
-            error,
-            ..
-        } = self
-        {
+        if let Self::CleanupFailed { error, .. } = self {
             if let CapabilityOwnerError::Timeout { timeout_ms } = error.as_ref() {
                 return Some(*timeout_ms);
             }
@@ -125,11 +121,7 @@ impl CapabilityReadError {
     /// Surfaces an upstream authentication failure reason, when the discovery attempt or
     /// owner cleanup failed because the upstream server rejected our credentials.
     pub(crate) fn authentication_failure(&self) -> Option<(CapabilityAuthenticationFailureCode, &str)> {
-        if let Self::CleanupFailed {
-            error,
-            ..
-        } = self
-        {
+        if let Self::CleanupFailed { error, .. } = self {
             if let CapabilityOwnerError::Authentication { code, reason } = error.as_ref() {
                 return Some((*code, reason.as_str()));
             }
@@ -140,7 +132,11 @@ impl CapabilityReadError {
         fresh
             .as_deref()
             .and_then(DiscoveryAttemptFailure::authentication_failure)
-            .or_else(|| existing.as_deref().and_then(DiscoveryAttemptFailure::authentication_failure))
+            .or_else(|| {
+                existing
+                    .as_deref()
+                    .and_then(DiscoveryAttemptFailure::authentication_failure)
+            })
     }
 
     pub(crate) fn authentication_reason(&self) -> Option<&str> {
@@ -2687,7 +2683,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");
@@ -4159,7 +4155,11 @@ mod tests {
         assert_eq!(error.connection_timeout_ms(), Some(125));
         assert_eq!(error.operation_timeout_ms(), None);
         match error {
-            CapabilityReadError::DiscoveryFailed { existing: Some(failure), fresh: None, .. } => {
+            CapabilityReadError::DiscoveryFailed {
+                existing: Some(failure),
+                fresh: None,
+                ..
+            } => {
                 assert_eq!(failure.instance_id, None);
                 assert_eq!(failure.connection_generation, None);
                 assert_eq!(failure.source, OwnerSource::Existing);
@@ -4199,7 +4199,11 @@ mod tests {
         assert_eq!(error.connection_timeout_ms(), None);
         assert_eq!(error.operation_timeout_ms(), Some(1_000));
         match error {
-            CapabilityReadError::DiscoveryFailed { existing: Some(failure), fresh: None, .. } => {
+            CapabilityReadError::DiscoveryFailed {
+                existing: Some(failure),
+                fresh: None,
+                ..
+            } => {
                 assert_eq!(failure.instance_id.as_deref(), Some("Existing-1"));
                 assert!(matches!(
                     failure.error,

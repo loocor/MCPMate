@@ -243,7 +243,7 @@ mod tests {
             .connect_with(options)
             .await
             .expect("connect audit db");
-        crate::test_helpers::prepare_audit_database(&audit_pool).await;
+        crate::helpers::prepare_audit_database(&audit_pool).await;
 
         let audit_database = Arc::new(AuditDatabase {
             pool: audit_pool.clone(),

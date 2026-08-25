@@ -3338,7 +3338,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect resolver database");
-        crate::test_helpers::prepare_config_database(&pool).await;
+        crate::helpers::prepare_config_database(&pool).await;
         crate::config::server::init::initialize_server_tables(&pool)
             .await
             .expect("initialize server tables");
@@ -3843,7 +3843,7 @@ mod tests {
             None,
         )
         .await;
-        let profile_id = crate::test_helpers::insert_profile(
+        let profile_id = crate::helpers::insert_profile(
             &database.pool,
             &Profile::new("filtered".to_string(), ProfileType::Scenario),
         )
@@ -4688,11 +4688,8 @@ mod tests {
     fn bundled_ucan_json5_is_well_formed_object() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         unsafe { std::env::remove_var("MCPMATE_UCAN_CONFIG") };
-        let bundled = super::parse_ucan_prompt_config(
-            super::BUNDLED_UCAN_PROMPT_CONFIG,
-            "bundled ucan.json5",
-        )
-        .expect("parse bundled prompt config");
+        let bundled = super::parse_ucan_prompt_config(super::BUNDLED_UCAN_PROMPT_CONFIG, "bundled ucan.json5")
+            .expect("parse bundled prompt config");
         let loaded = super::load_ucan_prompt_config_blocking().expect("load bundled prompt config");
         let fallback = super::default_ucan_prompt_config();
         assert_eq!(bundled.catalog_usage, fallback.catalog_usage);

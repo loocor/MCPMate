@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::config::models::ProfileMode;
+use crate::core::profile::guide::{
+    RenderedWorkflowSkill, WorkflowGuideCapability, WorkflowGuideExternalDocument, WorkflowGuidePackageFile,
+    WorkflowGuideView,
+};
 use crate::core::profile::materials::{
     WorkflowMaterial, WorkflowMaterialKind, WorkflowMaterialsReorderCommand, WorkflowMaterialsView,
     WorkflowStepMaterialsSaveCommand,
 };
 use crate::core::profile::workflow::{
     WorkflowGuidanceSaveCommand, WorkflowSpecification, WorkflowSpecificationPreview,
-};
-use crate::core::profile::workflow_guide::{
-    RenderedWorkflowSkill, WorkflowGuideCapability, WorkflowGuideExternalDocument, WorkflowGuidePackageFile,
-    WorkflowGuideView,
 };
 
 // Import the unified response macro
