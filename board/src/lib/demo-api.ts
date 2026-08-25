@@ -841,5 +841,8 @@ export async function handleDemoApiRequest<T>(
 		} as T;
 	}
 
+	if (method !== "GET" && method !== "HEAD") {
+		return wrapped({ ok: true }) as T;
+	}
 	throw new Error(`Demo API endpoint is not implemented: ${method} ${path}`);
 }
