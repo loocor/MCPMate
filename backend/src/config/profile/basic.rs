@@ -17,7 +17,8 @@ pub async fn get_all_profile(pool: &Pool<Sqlite>) -> Result<Vec<Profile>> {
     fetch_all_ordered(pool, "profile", Some("name")).await
 }
 
-/// Get all active profile from the database
+/// Capability working-set profiles.
+/// Workflow `is_active` means published, not part of Hosted/Transparent Active.
 pub async fn get_active_profile(pool: &Pool<Sqlite>) -> Result<Vec<Profile>> {
     tracing::trace!("Executing SQL query to get all active profile");
 
@@ -25,6 +26,7 @@ pub async fn get_active_profile(pool: &Pool<Sqlite>) -> Result<Vec<Profile>> {
         r#"
         SELECT * FROM profile
         WHERE is_active = 1
+          AND profile_mode != 'workflow'
         ORDER BY priority DESC, created_at ASC
         "#,
     )

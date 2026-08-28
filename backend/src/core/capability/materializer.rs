@@ -406,7 +406,7 @@ impl SurfaceAuthoringLoader {
             LEFT JOIN profile ON profile.id = ?
             WHERE client.approval_status = 'approved'
               AND (
-                    (client.capability_source = 'activated' AND profile.is_active = 1)
+                    (client.capability_source = 'activated' AND profile.is_active = 1 AND profile.profile_mode != 'workflow')
                  OR (
                         client.capability_source = 'profiles'
                     AND EXISTS (
@@ -530,10 +530,18 @@ impl SurfaceAuthoringLoader {
                     .collect()
             }
             ProfileScopePolicy::Selected => {
-                let ids = selected_profile_ids
-                    .map(|value| serde_json::from_str::<Vec<String>>(&value))
-                    .transpose()?
-                    .unwrap_or_default();
+                let raw_ids = selected_profile_ids.unwrap_or_else(|| "[]".to_string());
+                let ids: Vec<String> = sqlx::query_scalar(
+                    r#"
+                    SELECT profile.id
+                    FROM json_each(?) AS selected
+                    JOIN profile ON profile.id = selected.value
+                    WHERE profile.profile_mode != 'workflow'
+                    "#,
+                )
+                .bind(raw_ids)
+                .fetch_all(&mut **transaction)
+                .await?;
                 ids.into_iter()
                     .map(|id| {
                         ProfileAuthoringOwner::new(id, mcpmate_capability_store::ReviewOwnerType::StandardProfile)

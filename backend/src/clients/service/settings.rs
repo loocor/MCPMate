@@ -2627,6 +2627,12 @@ impl ClientConfigService {
                     profile_id
                 )));
             }
+            if profile.profile_mode == crate::config::models::ProfileMode::Workflow {
+                return Err(ConfigError::DataAccessError(format!(
+                    "Selected profile '{}' is a Workflow and cannot join a Capability working set",
+                    profile_id
+                )));
+            }
         }
 
         Ok(())

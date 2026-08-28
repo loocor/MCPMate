@@ -57,7 +57,7 @@ impl ProfileMerger {
                 FROM profile_capability_refs pcr
                 JOIN capability_refs cr ON cr.ref_id = pcr.ref_id
                 JOIN profile p ON pcr.profile_id = p.id
-                WHERE p.is_active = 1 AND cr.kind = 'tools'
+                WHERE p.is_active = 1 AND p.profile_mode != 'workflow' AND cr.kind = 'tools'
                 "#,
             )
             .fetch_one(&self.db.pool)
@@ -83,7 +83,7 @@ impl ProfileMerger {
                 FROM profile_capability_refs pcr
                 JOIN capability_refs cr ON cr.ref_id = pcr.ref_id
                 JOIN profile p ON pcr.profile_id = p.id
-                WHERE p.is_active = 1 AND cr.kind = 'resources'
+                WHERE p.is_active = 1 AND p.profile_mode != 'workflow' AND cr.kind = 'resources'
                 "#,
             )
             .fetch_one(&self.db.pool)
@@ -117,7 +117,7 @@ impl ProfileMerger {
                 FROM profile_capability_refs pcr
                 JOIN capability_refs cr ON cr.ref_id = pcr.ref_id
                 JOIN profile p ON pcr.profile_id = p.id
-                WHERE p.is_active = 1 AND cr.kind = 'prompts'
+                WHERE p.is_active = 1 AND p.profile_mode != 'workflow' AND cr.kind = 'prompts'
                 "#,
             )
             .fetch_one(&self.db.pool)

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mcpmate::config::models::ProfileMode;
+use mcpmate::config::profile::get_active_profile;
 use mcpmate::core::capability::management::{ProfileActivationAction, ProfileSurfaceManagement};
 use mcpmate::core::capability::materializer::bootstrap_managed_surfaces;
 use mcpmate::core::profile::authoring::{ProfileAuthoringCommand, ProfileAuthoringService};
@@ -320,4 +321,22 @@ async fn unpublished_packages_and_unset_distribution_do_not_mount() {
         .expect("clear distribution");
     let packages = load_published_skill_packages(&pool).await.expect("reload after clear");
     assert_eq!(packages[0].distribution, None);
+}
+
+#[tokio::test]
+async fn published_workflow_stays_out_of_capability_working_set() {
+    let pool = pool().await;
+    let _ref_ids = add_server(&pool).await;
+    ProfileAuthoringService::with_skills_root(pool.clone(), tempfile::tempdir().unwrap().keep())
+        .save(workflow_command(true), "test")
+        .await
+        .expect("publish workflow");
+
+    let active = get_active_profile(&pool).await.expect("load working-set profiles");
+    assert!(
+        active
+            .iter()
+            .all(|profile| profile.profile_mode != ProfileMode::Workflow),
+        "published Workflow must not appear in Hosted/Transparent Active: {active:?}"
+    );
 }

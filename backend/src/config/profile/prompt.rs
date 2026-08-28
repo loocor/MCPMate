@@ -91,7 +91,7 @@ pub fn build_enabled_prompts_query(additional_where: Option<&str>) -> String {
         JOIN capability_refs cr ON cr.ref_id = pcr.ref_id
         JOIN profile p ON p.id = pcr.profile_id
         JOIN server_config sc ON sc.id = cr.server_id
-        WHERE p.is_active = 1
+        WHERE p.is_active = 1 AND p.profile_mode != 'workflow'
           AND pcr.enabled = 1
           AND cr.state = 'active'
           AND cr.kind = 'prompts'

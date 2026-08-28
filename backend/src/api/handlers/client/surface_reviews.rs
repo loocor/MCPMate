@@ -862,7 +862,7 @@ async fn load_impacted_consumers(
                       client.capability_source = 'activated'
                       AND EXISTS (
                         SELECT 1 FROM profile
-                        WHERE profile.id = ? AND profile.is_active = 1
+                        WHERE profile.id = ? AND profile.is_active = 1 AND profile.profile_mode != 'workflow'
                       )
                     )
                     OR (

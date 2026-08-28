@@ -264,7 +264,7 @@ async fn load_server_consumer_ids(
                                 SELECT 1 FROM json_each(client.selected_profile_ids)
                                 WHERE json_each.value = profile.id
                             )
-                         OR (client.capability_source = 'activated' AND profile.is_active = 1)
+                         OR (client.capability_source = 'activated' AND profile.is_active = 1 AND profile.profile_mode != 'workflow')
                       )
                 )
           )
