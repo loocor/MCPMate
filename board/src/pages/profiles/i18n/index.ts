@@ -83,8 +83,11 @@ export const profilesTranslations = {
 				fields: {
 					name: "Name",
 					nameRequired: "Name *",
-					skillName: "Skill name *",
-					skillNameHelp: "Used for the Skill directory and SKILL.md name.",
+						skillName: "Skill name *",
+						skillNameHelp: "Used for the Skill directory and SKILL.md name.",
+						packageDistribution: "Client package",
+						packageDistributionHelp:
+							"Explicitly mount the generated Skill package beside Unify client config. Leave unset to keep Skills over MCP only.",
 				description: "Description",
 				status: "Status",
 				cloneFrom: "Clone From",
@@ -96,12 +99,16 @@ export const profilesTranslations = {
 				searchServers: "Search servers...",
 			},
 			labels: {
-				activateImmediately: "Activate immediately",
+					activateImmediately: "Activate immediately",
+					publishWorkflow: "Publish Skill package",
 				setAsDefault: "Set as default profile",
 				none: "None",
 				noDescription: "No description",
-				workflowInactive:
-					"Workflow Profiles remain inactive and cannot be the default profile.",
+					workflowInactive:
+						"Publishing a Workflow makes its Skill package visible. Workflow Profiles still cannot be the default profile.",
+					packageDistributionNone: "Do not mount on client apply",
+					packageDistributionSymlink: "Symlink the Skill package",
+					packageDistributionCopy: "Copy the Skill package",
 			},
 			profileModes: {
 				capability: "Capability Profile",
@@ -411,8 +418,10 @@ export const profilesTranslations = {
 			buttons: {
 				edit: "Edit",
 				delete: "Delete",
-				enable: "Enable",
-				disable: "Disable",
+					enable: "Enable",
+					disable: "Disable",
+					publish: "Publish",
+					unpublish: "Unpublish",
 				bulkEnable: "Enable Selected",
 				bulkDisable: "Disable Selected",
 				debug: "Inspect",
@@ -621,8 +630,11 @@ export const profilesTranslations = {
 				fields: {
 					name: "名称",
 					nameRequired: "名称 *",
-					skillName: "Skill 名称 *",
-					skillNameHelp: "用于 Skill 目录和 SKILL.md 名称。",
+						skillName: "Skill 名称 *",
+						skillNameHelp: "用于 Skill 目录和 SKILL.md 名称。",
+						packageDistribution: "客户端包",
+						packageDistributionHelp:
+							"显式把已生成的 Skill 包挂到 Unify 客户端配置旁。不选则只走 Skills over MCP。",
 				description: "描述",
 				status: "状态",
 				cloneFrom: "克隆自",
@@ -634,11 +646,15 @@ export const profilesTranslations = {
 				searchServers: "搜索服务器...",
 			},
 			labels: {
-				activateImmediately: "立即激活",
+					activateImmediately: "立即激活",
+					publishWorkflow: "发布 Skill 包",
 				setAsDefault: "设为默认配置集",
 				none: "无",
 				noDescription: "无描述",
-				workflowInactive: "工作流模式必须保持非活跃，且不能设为默认配置集。",
+					workflowInactive: "发布工作流后其 Skill 包将对下游可见。工作流仍不能设为默认配置集。",
+					packageDistributionNone: "Apply 时不挂载",
+					packageDistributionSymlink: "符号链接 Skill 包",
+					packageDistributionCopy: "复制 Skill 包",
 			},
 			profileModes: {
 				capability: "能力集",
@@ -929,8 +945,10 @@ export const profilesTranslations = {
 			buttons: {
 				edit: "编辑",
 				delete: "删除",
-				enable: "启用",
-				disable: "禁用",
+					enable: "启用",
+					disable: "禁用",
+					publish: "发布",
+					unpublish: "取消发布",
 				bulkEnable: "批量启用",
 				bulkDisable: "批量禁用",
 				debug: "检视",
@@ -1139,8 +1157,11 @@ export const profilesTranslations = {
 				fields: {
 					name: "名前",
 					nameRequired: "名前 *",
-					skillName: "Skill 名 *",
-					skillNameHelp: "Skill ディレクトリと SKILL.md 名に使用されます。",
+						skillName: "Skill 名 *",
+						skillNameHelp: "Skill ディレクトリと SKILL.md 名に使用されます。",
+						packageDistribution: "クライアントパッケージ",
+						packageDistributionHelp:
+							"生成済み Skill パッケージを Unify クライアント設定の横へ明示的にマウントします。未選択なら Skills over MCP のみです。",
 				description: "説明",
 				status: "状態",
 				cloneFrom: "クローン元",
@@ -1152,12 +1173,16 @@ export const profilesTranslations = {
 				searchServers: "サーバーを検索...",
 			},
 			labels: {
-				activateImmediately: "すぐにアクティブ化",
+					activateImmediately: "すぐにアクティブ化",
+					publishWorkflow: "Skill パッケージを公開",
 				setAsDefault: "デフォルトプロファイルに設定",
 				none: "なし",
 				noDescription: "説明なし",
-				workflowInactive:
-					"ワークフロープロファイルは非アクティブのままで、デフォルトにできません。",
+					workflowInactive:
+						"ワークフローを公開すると Skill パッケージが下流から見えます。デフォルトプロファイルにはできません。",
+					packageDistributionNone: "クライアント apply ではマウントしない",
+					packageDistributionSymlink: "Skill パッケージをシンボリックリンク",
+					packageDistributionCopy: "Skill パッケージをコピー",
 			},
 			profileModes: {
 				capability: "ケイパビリティプロファイル",
@@ -1466,8 +1491,10 @@ export const profilesTranslations = {
 			buttons: {
 				edit: "編集",
 				delete: "削除",
-				enable: "有効化",
-				disable: "無効化",
+					enable: "有効化",
+					disable: "無効化",
+					publish: "公開",
+					unpublish: "公開を取り消す",
 				bulkEnable: "一括有効化",
 				bulkDisable: "一括無効化",
 				debug: "検査",

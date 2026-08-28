@@ -264,9 +264,23 @@ async fn load_server_consumer_ids(
                                 SELECT 1 FROM json_each(client.selected_profile_ids)
                                 WHERE json_each.value = profile.id
                             )
-                         OR (client.capability_source = 'activated' AND profile.is_active = 1)
+                         OR (client.capability_source = 'activated' AND profile.is_active = 1 AND profile.profile_mode != 'workflow')
                       )
                 )
+             OR (
+                    COALESCE(NULLIF(TRIM(client.config_mode), ''), ?) = 'unify'
+                AND EXISTS (
+                    SELECT 1
+                    FROM workflow_profile_step_bindings binding
+                    JOIN profile ON profile.id = binding.profile_id
+                    JOIN capability_refs capability ON capability.ref_id = binding.ref_id
+                    WHERE profile.is_active = 1
+                      AND profile.profile_mode = 'workflow'
+                      AND binding.binding_policy = 'direct'
+                      AND capability.server_id = ?
+                      AND capability.state <> 'retired'
+                )
+             )
           )
         ORDER BY client.identifier
         "#,
@@ -274,6 +288,8 @@ async fn load_server_consumer_ids(
     .bind(server_id)
     .bind(server_id)
     .bind(server_id)
+    .bind(server_id)
+    .bind(default_config_mode)
     .bind(server_id)
     .fetch_all(&mut **transaction)
     .await?;
@@ -303,15 +319,19 @@ impl ProfileSurfaceManagement {
         let coordinator = MaterializationCoordinator::new(pool.clone());
         let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
         let default_config_mode = load_default_config_mode(pool).await?;
-        let row = sqlx::query("SELECT name, is_default, role, authoring_generation FROM profile WHERE id = ?")
-            .bind(profile_id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or_else(|| CatalogError::InvalidSurfaceValue {
-                field: "profile deletion",
-                value: profile_id.to_string(),
-            })?;
+        let row = sqlx::query(
+            "SELECT name, is_default, role, authoring_generation, is_active, profile_mode FROM profile WHERE id = ?",
+        )
+        .bind(profile_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| CatalogError::InvalidSurfaceValue {
+            field: "profile deletion",
+            value: profile_id.to_string(),
+        })?;
         let profile_name: String = row.try_get("name")?;
+        let is_active: bool = row.try_get("is_active")?;
+        let profile_mode: String = row.try_get("profile_mode")?;
         let workflow_skill_name: Option<String> =
             sqlx::query_scalar("SELECT skill_name FROM workflow_profile_skills WHERE profile_id = ?")
                 .bind(profile_id)
@@ -332,12 +352,28 @@ impl ProfileSurfaceManagement {
                 value: "default profiles cannot be deleted".to_string(),
             });
         }
-        let consumer_ids = SurfaceAuthoringLoader::load_profile_consumer_ids_in_transaction(
-            &mut transaction,
-            profile_id,
-            &default_config_mode,
-        )
-        .await?;
+        let consumer_ids = if profile_mode == "workflow" {
+            if is_active {
+                crate::core::profile::publication::load_unify_consumer_ids_in_transaction(
+                    &mut transaction,
+                    &default_config_mode,
+                )
+                .await
+                .map_err(|error| CatalogError::InvalidSurfaceValue {
+                    field: "published workflow consumers",
+                    value: error.to_string(),
+                })?
+            } else {
+                Vec::new()
+            }
+        } else {
+            SurfaceAuthoringLoader::load_profile_consumer_ids_in_transaction(
+                &mut transaction,
+                profile_id,
+                &default_config_mode,
+            )
+            .await?
+        };
         let deleted = sqlx::query("DELETE FROM profile WHERE id = ? AND authoring_generation = ?")
             .bind(profile_id)
             .bind(expected_authoring_generation)
@@ -447,12 +483,6 @@ impl ProfileSurfaceManagement {
                     value: "default anchor cannot be deactivated".to_string(),
                 });
             }
-            if action == ProfileActivationAction::Activate && state.profile_mode == "workflow" {
-                return Err(CatalogError::InvalidSurfaceValue {
-                    field: "profile activation",
-                    value: "workflow Profiles cannot be activated before publication is supported".to_string(),
-                });
-            }
         }
 
         for profile_id in profile_ids {
@@ -505,9 +535,41 @@ impl ProfileSurfaceManagement {
             })
             .collect();
 
-        let consumer_ids =
-            SurfaceAuthoringLoader::load_activated_consumer_ids_in_transaction(&mut transaction, &default_config_mode)
-                .await?;
+        let workflow_changed = profile_ids.iter().any(|profile_id| {
+            states
+                .iter()
+                .any(|state| state.id == *profile_id && state.profile_mode == "workflow")
+        });
+        let capability_changed = profile_ids.iter().any(|profile_id| {
+            states
+                .iter()
+                .any(|state| state.id == *profile_id && state.profile_mode != "workflow")
+        });
+        let mut consumer_ids = Vec::new();
+        if capability_changed {
+            consumer_ids.extend(
+                SurfaceAuthoringLoader::load_activated_consumer_ids_in_transaction(
+                    &mut transaction,
+                    &default_config_mode,
+                )
+                .await?,
+            );
+        }
+        if workflow_changed {
+            consumer_ids.extend(
+                crate::core::profile::publication::load_unify_consumer_ids_in_transaction(
+                    &mut transaction,
+                    &default_config_mode,
+                )
+                .await
+                .map_err(|error| CatalogError::InvalidSurfaceValue {
+                    field: "unify consumers",
+                    value: error.to_string(),
+                })?,
+            );
+        }
+        consumer_ids.sort();
+        consumer_ids.dedup();
         let trigger =
             MaterializationTrigger::for_consumer("profile_activation_save", Uuid::new_v4().to_string(), actor);
         let mut materializations = Vec::with_capacity(consumer_ids.len());

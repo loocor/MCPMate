@@ -202,22 +202,24 @@ export function ProfileFormDrawer({
 	const navigate = useNavigate();
 
 	// Form state
-	const [formData, setFormData] = useState<ProfileFormDraft>({
-		name: "",
-		skill_name: "",
-		description: "",
-		suit_type: restrictProfileType || "shared",
-		priority: 50,
-		is_active: false,
-		is_default: false,
-		clone_from_id: "none",
-		profile_mode: "capability",
-	});
+		const [formData, setFormData] = useState<ProfileFormDraft>({
+			name: "",
+			skill_name: "",
+			package_distribution: "",
+			description: "",
+			suit_type: restrictProfileType || "shared",
+			priority: 50,
+			is_active: false,
+			is_default: false,
+			clone_from_id: "none",
+			profile_mode: "capability",
+		});
 
 	// Generate unique IDs for form elements
-	const nameId = useId();
-	const skillNameId = useId();
-	const descriptionId = useId();
+		const nameId = useId();
+		const skillNameId = useId();
+		const packageDistributionId = useId();
+		const descriptionId = useId();
 	const validationNotesId = useId();
 	const avoidRulesId = useId();
 	const isActiveId = useId();
@@ -330,30 +332,32 @@ export function ProfileFormDrawer({
 		dispatchConflict({ type: "reset" });
 
 		if (mode === "edit" && suit) {
-			setFormData({
-				name: suit.name,
-				skill_name: "",
-				description: suit.description || "",
-				suit_type: suit.suit_type,
-				priority: suit.priority,
-				is_active: suit.is_active,
-				is_default: suit.is_default,
-				clone_from_id: "none", // Not applicable in edit mode
-				profile_mode: suit.profile_mode,
-			});
+				setFormData({
+					name: suit.name,
+					skill_name: "",
+					package_distribution: "",
+					description: suit.description || "",
+					suit_type: suit.suit_type,
+					priority: suit.priority,
+					is_active: suit.is_active,
+					is_default: suit.is_default,
+					clone_from_id: "none", // Not applicable in edit mode
+					profile_mode: suit.profile_mode,
+				});
 		} else {
 			// Create mode - reset to empty form
-			setFormData({
-				name: "",
-				skill_name: "",
-				description: "",
-				suit_type: restrictProfileType || "shared",
-				priority: 50,
-				is_active: false,
-				is_default: false,
-				clone_from_id: "none",
-				profile_mode: "capability",
-			});
+				setFormData({
+					name: "",
+					skill_name: "",
+					package_distribution: "",
+					description: "",
+					suit_type: restrictProfileType || "shared",
+					priority: 50,
+					is_active: false,
+					is_default: false,
+					clone_from_id: "none",
+					profile_mode: "capability",
+				});
 		}
 	}, [mode, suit, restrictProfileType, isHostAppProfile]);
 
@@ -615,7 +619,9 @@ export function ProfileFormDrawer({
 				formData.is_default !== current.is_default ||
 				formData.profile_mode !==
 					(authoringBaselineView.profile_mode ?? current.profile_mode ?? "capability") ||
-				formData.skill_name !== (authoringBaselineView.skill_name ?? "");
+					formData.skill_name !== (authoringBaselineView.skill_name ?? "") ||
+					formData.package_distribution !==
+						(authoringBaselineView.package_distribution ?? "");
 			if (!latestAuthoringView && !selectionChanged && !hasFieldUpdates && !hasWorkflowGuidanceChanges) {
 				closeDrawer();
 				return;
@@ -758,9 +764,7 @@ export function ProfileFormDrawer({
 	useEffect(() => {
 		if (isWorkflowProfile) {
 			setFormData((prev) =>
-				prev.is_active || prev.is_default
-					? { ...prev, is_active: false, is_default: false }
-					: prev,
+				prev.is_default ? { ...prev, is_default: false } : prev,
 			);
 		}
 	}, [isWorkflowProfile]);
@@ -790,7 +794,6 @@ export function ProfileFormDrawer({
 						<Switch
 							id={isActiveId}
 							checked={formData.is_active}
-							disabled={isWorkflowProfile}
 							onCheckedChange={(checked) =>
 								setFormData((prev) => ({
 									...prev,
@@ -799,9 +802,13 @@ export function ProfileFormDrawer({
 							}
 						/>
 						<Label htmlFor={isActiveId} className="text-sm">
-							{t("profiles:form.labels.activateImmediately", {
-								defaultValue: "Activate immediately",
-							})}
+							{isWorkflowProfile
+								? t("profiles:form.labels.publishWorkflow", {
+										defaultValue: "Publish Skill package",
+									})
+								: t("profiles:form.labels.activateImmediately", {
+										defaultValue: "Activate immediately",
+									})}
 						</Label>
 					</div>
 					{showDefaultToggle && (
@@ -839,7 +846,6 @@ export function ProfileFormDrawer({
 						<Switch
 							id={isActiveId}
 							checked={formData.is_active}
-							disabled={isWorkflowProfile}
 							onCheckedChange={(checked) =>
 								setFormData((prev) => ({
 									...prev,
@@ -848,9 +854,13 @@ export function ProfileFormDrawer({
 							}
 						/>
 						<Label htmlFor={isActiveId} className="text-sm">
-							{t("profiles:form.labels.activateImmediately", {
-								defaultValue: "Activate immediately",
-							})}
+							{isWorkflowProfile
+								? t("profiles:form.labels.publishWorkflow", {
+										defaultValue: "Publish Skill package",
+									})
+								: t("profiles:form.labels.activateImmediately", {
+										defaultValue: "Activate immediately",
+									})}
 						</Label>
 					</div>
 					{showDefaultToggle && (
@@ -1056,11 +1066,61 @@ export function ProfileFormDrawer({
 												}
 												required
 											/>
+											</div>
 										</div>
-									</div>
-								)}
+									)}
 
-								<div className="flex items-start gap-4">
+									{isWorkflowProfile && (
+										<div className="flex items-start gap-4">
+											<Label
+												htmlFor={packageDistributionId}
+												className="flex w-32 items-center gap-1 pt-2 text-sm font-medium text-slate-600 dark:text-slate-300"
+											>
+												{t("profiles:form.fields.packageDistribution")}
+												<TooltipProvider delayDuration={200}>
+													<Tooltip>
+														<TooltipTrigger asChild>
+															<span
+																className="inline-flex cursor-help text-muted-foreground"
+																aria-label={t("profiles:form.fields.packageDistributionHelp")}
+															>
+																<HelpCircle className="size-3.5" />
+															</span>
+														</TooltipTrigger>
+														<TooltipContent side="right" className="max-w-xs">
+															{t("profiles:form.fields.packageDistributionHelp")}
+														</TooltipContent>
+													</Tooltip>
+												</TooltipProvider>
+											</Label>
+											<select
+												id={packageDistributionId}
+												value={formData.package_distribution}
+												onChange={(e) =>
+													setFormData((prev) => ({
+														...prev,
+														package_distribution: e.target.value as
+															| ""
+															| "symlink"
+															| "copy",
+													}))
+												}
+												className="flex h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+											>
+												<option value="">
+													{t("profiles:form.labels.packageDistributionNone")}
+												</option>
+												<option value="symlink">
+													{t("profiles:form.labels.packageDistributionSymlink")}
+												</option>
+												<option value="copy">
+													{t("profiles:form.labels.packageDistributionCopy")}
+												</option>
+											</select>
+										</div>
+									)}
+
+									<div className="flex items-start gap-4">
 									<Label
 										htmlFor={descriptionId}
 										className="w-32 text-sm font-medium text-slate-600 dark:text-slate-300"
@@ -1127,7 +1187,7 @@ export function ProfileFormDrawer({
 													...(value === "workflow" && !skillNameTouchedRef.current
 														? { skill_name: suggestedSkillName(prev.name) }
 														: {}),
-													...(value === "workflow" ? { is_active: false, is_default: false } : {}),
+													...(value === "workflow" ? { is_default: false } : {}),
 												}));
 											}}
 											options={profileModeOptions}

@@ -13,7 +13,7 @@ use crate::{
         service::ClientConfigService,
     },
     config::{database::Database, profile},
-    core::pool::UpstreamConnectionPool,
+    core::{pool::UpstreamConnectionPool, profile::publication::PublishedWorkflowDirectSet},
 };
 
 use super::{
@@ -36,6 +36,7 @@ pub struct ClientBuiltinContext {
     pub selected_profile_ids: Vec<String>,
     pub custom_profile_id: Option<String>,
     pub unify_workspace: Option<UnifyDirectExposureConfig>,
+    pub workflow_direct: PublishedWorkflowDirectSet,
 }
 
 pub struct ClientService {

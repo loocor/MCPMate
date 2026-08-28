@@ -375,8 +375,12 @@ impl WorkflowGuideService {
         let parsed = parse_workflow_guide(&command.markdown)
             .map_err(|errors| WorkflowGuideError::InvalidStorage(format_parse_errors(&errors)))?;
         validate_save_command(&command, &parsed)?;
+        let default_config_mode = crate::core::capability::materializer::load_default_config_mode(&self.pool)
+            .await
+            .map_err(|error| WorkflowGuideError::Projection(error.to_string()))?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let (view, reclamation_plan) = save_in_transaction(&mut transaction, &command).await?;
+        let (view, reclamation_plan) =
+            save_in_transaction(&mut transaction, &self.pool, &command, &default_config_mode).await?;
         if !reclamation_plan.is_empty() {
             return Err(WorkflowGuideError::InvalidStorage(
                 "confirmed reclamation requires coordinated save and projection".to_string(),
@@ -626,8 +630,12 @@ impl WorkflowGuideService {
         let parsed = parse_workflow_guide(&command.markdown)
             .map_err(|errors| WorkflowGuideError::InvalidStorage(format_parse_errors(&errors)))?;
         validate_save_command(&command, &parsed)?;
+        let default_config_mode = crate::core::capability::materializer::load_default_config_mode(&self.pool)
+            .await
+            .map_err(|error| WorkflowGuideError::Projection(error.to_string()))?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let (guide, reclamation_plan) = save_in_transaction(&mut transaction, &command).await?;
+        let (guide, reclamation_plan) =
+            save_in_transaction(&mut transaction, &self.pool, &command, &default_config_mode).await?;
         let skill_name = ensure_skill_name(&mut transaction, &command.profile_id)
             .await
             .map_err(|error| WorkflowGuideError::Projection(error.to_string()))?;
@@ -666,6 +674,9 @@ impl WorkflowGuideService {
         skills_root: PathBuf,
     ) -> Result<WorkflowGuidePackageFileSaveResult, WorkflowGuideError> {
         validate_package_file_command(&command)?;
+        let default_config_mode = crate::core::capability::materializer::load_default_config_mode(&self.pool)
+            .await
+            .map_err(|error| WorkflowGuideError::Projection(error.to_string()))?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         verify_workflow_profile(&mut transaction, &command.profile_id).await?;
         ensure_guide(&mut transaction, &command.profile_id).await?;
@@ -825,8 +836,14 @@ impl WorkflowGuideService {
             if external_document_is_reachable {
                 verify_capability_names(&mut transaction, &graph.combined.capabilities).await?;
                 verify_package_paths(&mut transaction, &command.profile_id, &graph.combined.package_paths).await?;
-                synchronize_workflow_specification(&mut transaction, &command.profile_id, &graph.combined.capabilities)
-                    .await?;
+                synchronize_workflow_specification(
+                    &mut transaction,
+                    &self.pool,
+                    &command.profile_id,
+                    &graph.combined.capabilities,
+                    &default_config_mode,
+                )
+                .await?;
                 bump_guide_revision(&mut transaction, &command.profile_id, expected_guide_revision).await?;
             }
         }
@@ -1291,7 +1308,9 @@ impl StagedWorkflowProjection {
 
 async fn save_in_transaction(
     transaction: &mut Transaction<'_, Sqlite>,
+    pool: &Pool<Sqlite>,
     command: &WorkflowGuideSaveCommand,
+    default_config_mode: &str,
 ) -> Result<(WorkflowGuideView, WorkflowGuideReclamationPlan), WorkflowGuideError> {
     verify_workflow_profile(transaction, &command.profile_id).await?;
     ensure_guide(transaction, &command.profile_id).await?;
@@ -1306,7 +1325,14 @@ async fn save_in_transaction(
     apply_reclamation_metadata(transaction, &command.profile_id, &reclamation_plan).await?;
     verify_capability_names(transaction, &graph.combined.capabilities).await?;
     verify_package_paths(transaction, &command.profile_id, &graph.combined.package_paths).await?;
-    synchronize_workflow_specification(transaction, &command.profile_id, &graph.combined.capabilities).await?;
+    synchronize_workflow_specification(
+        transaction,
+        pool,
+        &command.profile_id,
+        &graph.combined.capabilities,
+        default_config_mode,
+    )
+    .await?;
     let changed = sqlx::query(
         "UPDATE workflow_profile_guides
          SET markdown = ?, guide_revision = guide_revision + 1, updated_at = CURRENT_TIMESTAMP
@@ -1395,8 +1421,10 @@ async fn apply_reclamation_metadata(
 
 async fn synchronize_workflow_specification(
     transaction: &mut Transaction<'_, Sqlite>,
+    pool: &Pool<Sqlite>,
     profile_id: &str,
     capabilities: &[WorkflowGuideCapability],
+    default_config_mode: &str,
 ) -> Result<(), WorkflowGuideError> {
     let capability_refs = load_canonical_capability_refs(transaction).await?;
     let specification: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
@@ -1410,7 +1438,7 @@ async fn synchronize_workflow_specification(
         Some((revision, validation_notes, avoid_rules)) => (Some(revision), validation_notes, avoid_rules),
         None => (None, None, None),
     };
-    let specification = WorkflowSpecificationService::save_in_transaction(
+    WorkflowSpecificationService::save_in_transaction(
         transaction,
         WorkflowSpecificationSaveCommand {
             profile_id: profile_id.to_string(),
@@ -1438,9 +1466,10 @@ async fn synchronize_workflow_specification(
                 })
                 .collect::<Result<Vec<_>, WorkflowGuideError>>()?,
         },
+        pool,
+        default_config_mode,
     )
     .await?;
-    let _ = specification;
     Ok(())
 }
 

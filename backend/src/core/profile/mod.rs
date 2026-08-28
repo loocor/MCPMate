@@ -21,6 +21,7 @@ pub mod guide;
 pub mod materials;
 pub mod merge;
 pub mod projection;
+pub mod publication;
 pub mod service;
 pub mod types;
 pub mod visibility;

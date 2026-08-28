@@ -36,8 +36,8 @@ use mcpmate::{
     system::metrics::MetricsCollector,
 };
 use mcpmate_capability_store::{
-    CapabilityCatalog, CapabilityKind, CapabilityObservation, CapabilityPayload, CatalogError, CatalogRecord,
-    DeclarationState, InventoryState, KindObservation, SqliteCapabilityCatalog,
+    CapabilityCatalog, CapabilityKind, CapabilityObservation, CapabilityPayload, CatalogRecord, DeclarationState,
+    InventoryState, KindObservation, SqliteCapabilityCatalog,
 };
 use rmcp::model::{InitializeResult, Tool};
 use serde_json::json;
@@ -611,6 +611,7 @@ fn workflow_profile_command() -> ProfileAuthoringCommand {
         clone_from_id: None,
         profile_mode: Some(ProfileMode::Workflow),
         skill_name: Some("investigate-incident".to_string()),
+        package_distribution: None,
         workflow_guidance: None,
     }
 }
@@ -683,7 +684,7 @@ fn app_state(pool: sqlx::SqlitePool) -> Arc<AppState> {
 }
 
 #[tokio::test]
-async fn workflow_specification_is_ordered_cas_aware_and_never_publishes_a_surface() {
+async fn workflow_specification_is_ordered_cas_aware_and_does_not_compile_hosted_surface() {
     let pool = pool().await;
     let ref_ids = add_server(&pool, "server-a", "Server A", 1).await;
     let profile = workflow_authoring_service(&pool)
@@ -695,7 +696,7 @@ async fn workflow_specification_is_ordered_cas_aware_and_never_publishes_a_surfa
     let profile_response = ResponseConverter::profile_to_response(&profile.profile);
     assert_eq!(profile_response.profile_mode, ProfileMode::Workflow);
     assert!(
-        !profile_response
+        profile_response
             .allowed_operations
             .iter()
             .any(|operation| operation == "activate")
@@ -708,8 +709,9 @@ async fn workflow_specification_is_ordered_cas_aware_and_never_publishes_a_surfa
         HashMap::from([(profile_id.clone(), profile.profile.authoring_generation)]),
         "test",
     )
-    .await;
-    assert!(matches!(activation, Err(CatalogError::InvalidSurfaceValue { .. })));
+    .await
+    .expect("workflow activation should be allowed");
+    assert!(activation.mutations.iter().any(|mutation| mutation.is_active));
     let baseline_publications: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM surface_publications")
         .fetch_one(&pool)
         .await

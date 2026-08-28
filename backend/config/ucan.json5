@@ -1,7 +1,7 @@
 {
   // --- Shared discovery tools (Unify + Hosted) ---
-  catalog_tool_description: "MCPMATE SURFACE DIRECTORY (ALWAYS START HERE).\nGoal: discover the current MCP surface exposed to this client before invoking, reading, or selecting anything.\nDo: call mcpmate_ucan_catalog first, scan current page, then choose one surface item.\nNever skip to mcpmate_ucan_details.\nWorkflow: directory → details → call, resources/read, or select.\nPagination: use small page_size, move page-by-page to reduce token cost and keep ranking stable.\nExample: mcpmate_ucan_catalog(page=1, page_size=10) or mcpmate_ucan_catalog(page=1, page_size=10, kind_filter=[\"tool\"]) or mcpmate_ucan_catalog(page=1, page_size=10, search=\"github\")",
-  details_tool_description: "MCPMATE SURFACE INSPECTOR (STEP 2).\nGoal: understand exactly how one selected MCP surface item should be invoked, read, or selected.\nInput must come from the surface directory: capability_kind + capability_name.\nUse detail_level=summary first; switch to full only when argument construction is still ambiguous.\nOutput includes workflow_hints + call_requirements.\nWorkflow: after details is clear, use mcpmate_ucan_call only for Tool or Prompt, resources/read for Resource or ResourceTemplate, or mcpmate_profile_set for profiles.\nExample: mcpmate_ucan_details(capability_kind=\"tool\", capability_name=\"github_search\", detail_level=\"summary\")",
+  catalog_tool_description: "MCPMATE SURFACE DIRECTORY (ALWAYS START HERE).\nGoal: discover the current MCP surface exposed to this client before invoking, reading, or selecting anything.\nPrefer a published Workflow Profile whose description covers the whole toolchain for the task. Only fall back to composing atomic tools, prompts, or resources when no matching Profile exists.\nDo: call mcpmate_ucan_catalog first, scan current page, then choose one surface item.\nNever skip to mcpmate_ucan_details.\nWorkflow: directory → details → call, resources/read, or select.\nPagination: use small page_size, move page-by-page to reduce token cost and keep ranking stable.\nExample: mcpmate_ucan_catalog(page=1, page_size=10) or mcpmate_ucan_catalog(page=1, page_size=10, kind_filter=[\"profile\"]) or mcpmate_ucan_catalog(page=1, page_size=10, search=\"release\")",
+  details_tool_description: "MCPMATE SURFACE INSPECTOR (STEP 2).\nGoal: understand exactly how one selected MCP surface item should be invoked or read.\nInput must come from the surface directory: capability_kind + capability_name.\nUse detail_level=summary first; switch to full only when argument construction is still ambiguous.\nWorkflow Profiles: details.skill_resource is read with resources/read. Do not embed or invent a second Skill body.\nAfter details is clear, use mcpmate_ucan_call only for Tool or Prompt, and resources/read for Resource, ResourceTemplate, or a Workflow skill_resource.\nExample: mcpmate_ucan_details(capability_kind=\"profile\", capability_name=\"screenshot\", detail_level=\"summary\")",
   call_tool_description: "MCPMATE SURFACE CALLER (STEP 3).\nGoal: call one Tool or Prompt selected from the directory and verified by details.\nRequired: capability_kind + capability_name from the surface directory.\nArguments: provide arguments for Tool or Prompt. Resource and ResourceTemplate targets must use standard resources/read with a concrete canonical URI.\nIf execution fails, return to details(detail_level=full), correct arguments, then retry.\nWorkflow: do not use call as discovery or resource execution; use directory and details first.\nExample: mcpmate_ucan_call(capability_kind=\"tool\", capability_name=\"github_search\", arguments={\"query\":\"rust mcp\"})",
 
   // --- Hosted profile management tools ---
@@ -11,17 +11,15 @@
   profile_remove_description: "MCPMATE SURFACE PROFILE REDUCE\nROLE: Remove profile bundles from the active MCP surface without deleting profile definitions.\nUSE_WHEN: The user wants to drop specific profiles from the current working set.\nRETURNS: The remaining profile selection after removal.\nWORKFLOW: get -> remove. IDs not in the current selection are silently skipped.\nRULES: Requires profile_ids with at least one ID. Profile definitions are never deleted.\nExample: mcpmate_profile_remove(profile_ids=[\"prof_def456\"])",
 
   // --- Catalog configuration ---
-  catalog_stale_hint: "Surface data reflects currently enabled and reachable server capabilities plus selectable profile bundles. If server status changed, call mcpmate_ucan_catalog again before making a final selection.",
-  error_recovery_hint: "Recovery path: verify capability_name and capability_kind from mcpmate_ucan_catalog, inspect Details with detail_level=full, then retry Tool or Prompt with corrected arguments. For Resource or ResourceTemplate, use Details to obtain or expand the concrete canonical URI, then invoke resources/read.",
-  catalog_usage: "Use mcpmate_ucan_catalog to choose one surface item, then inspect it with mcpmate_ucan_details. Call Tool or Prompt with mcpmate_ucan_call. For Resource or ResourceTemplate, use Details to obtain or expand the concrete canonical URI, then invoke resources/read.",
+  catalog_stale_hint: "Surface data reflects currently enabled capabilities and published Workflow Profiles. If status changed, call mcpmate_ucan_catalog again before making a final selection.",
+  error_recovery_hint: "Recovery path: verify capability_kind and capability_name from mcpmate_ucan_catalog, inspect Details with detail_level=full, then retry. For a Workflow Profile, resources/read the skill_resource. For Resource or ResourceTemplate, use Details to obtain or expand the concrete canonical URI, then invoke resources/read.",
+  catalog_usage: "Use mcpmate_ucan_catalog to choose one surface item by capability_kind and capability_name, then inspect it with mcpmate_ucan_details. Call Tool or Prompt with mcpmate_ucan_call. For Resource, ResourceTemplate, or a Workflow skill_resource, use resources/read.",
   catalog_format: [
     "capability_name",
     "capability_kind",
     "summary",
     "action",
     "next_step",
-    "server_id",
-    "server_name",
     "interaction_mode",
     "detail_hint",
     "source",
@@ -34,10 +32,10 @@
   catalog_sort_weights: {
     kind: {
       profile: 0,
-      tool: 0,
-      prompt: 1,
-      resource: 2,
-      resource_template: 3,
+      tool: 1,
+      prompt: 2,
+      resource: 3,
+      resource_template: 4,
     },
     health: {
       ready: 0,
@@ -64,8 +62,13 @@
       "Invoke resources/read with the concrete canonical URI.",
     ],
     profile: [
-      "Profiles are selectable bundles that shape the MCP surface. Discover with mcpmate_ucan_catalog(kind_filter=[\"profile\"]), then inspect the selected surface item before activating via mcpmate_profile_set.",
+      "Capability Profiles are selectable bundles that shape the MCP surface. Inspect first, then activate with mcpmate_profile_set.",
       "After profile selection changes, exposed tools update automatically. Re-fetch tools/list if your client does not auto-refresh.",
+    ],
+    skill: [
+      "Read details.skill_resource with resources/read. Do not embed or invent a second Skill body.",
+      "Direct capabilities are invoked from the directory after details. Meta capabilities stay on catalog/details/call.",
+      "Do not activate a Workflow Profile with mcpmate_profile_set.",
     ],
   },
 }

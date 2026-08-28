@@ -357,7 +357,7 @@ pub async fn prompts_list(
                   JOIN profile p ON p.id = psr.profile_id
                   WHERE psr.server_id = sc.id
                     AND psr.enabled = 1
-                    AND p.is_active = 1
+                    AND p.is_active = 1 AND p.profile_mode != 'workflow'
                 )
                 OR EXISTS (
                   SELECT 1
@@ -366,7 +366,7 @@ pub async fn prompts_list(
                   JOIN capability_refs cr ON cr.ref_id = pcr.ref_id
                   WHERE cr.server_id = sc.id
                     AND pcr.enabled = 1
-                    AND p.is_active = 1
+                    AND p.is_active = 1 AND p.profile_mode != 'workflow'
                     AND NOT EXISTS (
                       SELECT 1
                       FROM profile_server_relationships gate

@@ -9,6 +9,7 @@ pub mod query;
 pub mod reapply;
 pub mod rules;
 pub mod settings;
+pub mod skill_mount;
 pub mod state;
 pub mod sync;
 

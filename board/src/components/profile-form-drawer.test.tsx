@@ -80,10 +80,11 @@ describe("ProfileFormDrawer authoring", () => {
 		const request = authoringUi.buildProfileAuthoringSaveRequest({
 			mode: "create",
 			profileId: null,
-			draft: {
-				...createRequest,
-				skill_name: "workflow-test",
-				suit_type: "shared",
+				draft: {
+					...createRequest,
+					skill_name: "workflow-test",
+					package_distribution: "symlink",
+					suit_type: "shared",
 				clone_from_id: "none",
 				profile_mode: "workflow",
 				is_active: false,
@@ -97,10 +98,11 @@ describe("ProfileFormDrawer authoring", () => {
 			},
 		});
 
-		expect(request).toMatchObject({
-			profile_mode: "workflow",
-			skill_name: "workflow-test",
-			is_active: false,
+			expect(request).toMatchObject({
+				profile_mode: "workflow",
+				skill_name: "workflow-test",
+				package_distribution: "symlink",
+				is_active: false,
 			is_default: false,
 			workflow_guidance: {
 				expected_specification_revision: null,
@@ -108,6 +110,26 @@ describe("ProfileFormDrawer authoring", () => {
 				avoid_rules: "Do not infer missing facts.",
 			},
 		});
+	});
+
+	test("clears Skill package distribution when unset", () => {
+		const request = authoringUi.buildProfileAuthoringSaveRequest({
+			mode: "create",
+			profileId: null,
+			draft: {
+				...createRequest,
+				skill_name: "workflow-test",
+				package_distribution: "",
+				suit_type: "shared",
+				clone_from_id: "none",
+				profile_mode: "workflow",
+				is_active: false,
+				is_default: false,
+			},
+			serverIds: ["server-a"],
+		});
+
+		expect(request.package_distribution).toBeNull();
 	});
 
 	test("validates Workflow Skill names before submission", () => {
@@ -214,10 +236,11 @@ describe("ProfileFormDrawer authoring", () => {
 			submittedBody = init?.body ? JSON.parse(String(init.body)) : undefined;
 			return successResponse({ ...savedProfile, authoring_generation: 14 });
 		};
-		const draft: authoringUi.ProfileFormDraft = {
-			name: "Unsaved local name",
-			skill_name: "",
-			description: "Unsaved local description",
+			const draft: authoringUi.ProfileFormDraft = {
+				name: "Unsaved local name",
+				skill_name: "",
+				package_distribution: "",
+				description: "Unsaved local description",
 			suit_type: "shared",
 			priority: 50,
 			is_active: true,
@@ -482,3 +505,15 @@ describe("ProfileFormDrawer authoring", () => {
 	});
 
 });
+
+	describe("capability working-set filter", () => {
+		test("keeps Capability profiles and drops Workflow from Hosted/Transparent working sets", () => {
+			expect(
+				authoringUi.isCapabilityWorkingSetProfile({ profile_mode: "capability" }),
+			).toBeTrue();
+			expect(authoringUi.isCapabilityWorkingSetProfile({})).toBeTrue();
+			expect(
+				authoringUi.isCapabilityWorkingSetProfile({ profile_mode: "workflow" }),
+			).toBeFalse();
+		});
+	});

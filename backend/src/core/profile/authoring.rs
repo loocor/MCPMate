@@ -15,6 +15,7 @@ use crate::core::profile::guide::{WorkflowGuideError, ensure_guide, stage_projec
 use crate::core::profile::materials::{
     SkillDirectoryRename, WorkflowMaterialsError, WorkflowMaterialsService, rollback_skill_directory_rename,
 };
+use crate::core::profile::publication::{SkillPackageDistribution, load_unify_consumer_ids_in_transaction};
 use crate::core::profile::workflow::{
     WorkflowGuidanceSaveCommand, WorkflowSpecificationError, WorkflowSpecificationService,
 };
@@ -33,6 +34,7 @@ pub struct ProfileAuthoringCommand {
     pub clone_from_id: Option<String>,
     pub profile_mode: Option<ProfileMode>,
     pub skill_name: Option<String>,
+    pub package_distribution: Option<SkillPackageDistribution>,
     pub workflow_guidance: Option<WorkflowGuidanceSaveCommand>,
 }
 
@@ -42,6 +44,7 @@ pub struct ProfileAuthoringView {
     pub server_ids: Vec<String>,
     pub profile_mode: ProfileMode,
     pub skill_name: Option<String>,
+    pub package_distribution: Option<SkillPackageDistribution>,
 }
 
 #[derive(Debug)]
@@ -138,19 +141,27 @@ impl ProfileAuthoringService {
             })?;
         let profile_mode = load_profile_mode_in_transaction(transaction, profile_id).await?;
         let server_ids = load_server_ids_in_transaction(transaction, profile_id).await?;
-        let skill_name = if profile_mode == ProfileMode::Workflow {
-            sqlx::query_scalar("SELECT skill_name FROM workflow_profile_skills WHERE profile_id = ?")
+        let (skill_name, package_distribution) = if profile_mode == ProfileMode::Workflow {
+            let skill_name = sqlx::query_scalar("SELECT skill_name FROM workflow_profile_skills WHERE profile_id = ?")
                 .bind(profile_id)
                 .fetch_optional(&mut **transaction)
-                .await?
+                .await?;
+            let stored: Option<String> = sqlx::query_scalar(
+                "SELECT package_distribution FROM workflow_profile_skill_settings WHERE profile_id = ?",
+            )
+            .bind(profile_id)
+            .fetch_optional(&mut **transaction)
+            .await?;
+            (skill_name, stored.as_deref().and_then(SkillPackageDistribution::parse))
         } else {
-            None
+            (None, None)
         };
         Ok(ProfileAuthoringView {
             profile,
             server_ids,
             profile_mode,
             skill_name,
+            package_distribution,
         })
     }
 
@@ -167,16 +178,10 @@ impl ProfileAuthoringService {
             .into_iter()
             .collect();
         self.validate_targets(&command).await?;
-        let profile_mode_before_transaction = resolve_profile_mode_before_transaction(&self.pool, &command).await?;
-        let default_config_mode = if profile_mode_before_transaction == ProfileMode::Capability {
-            Some(
-                load_default_config_mode(&self.pool)
-                    .await
-                    .map_err(ProfileAuthoringError::Persistence)?,
-            )
-        } else {
-            None
-        };
+        let _profile_mode_before_transaction = resolve_profile_mode_before_transaction(&self.pool, &command).await?;
+        let default_config_mode = load_default_config_mode(&self.pool)
+            .await
+            .map_err(ProfileAuthoringError::Persistence)?;
 
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let profile_mode = resolve_profile_mode_in_transaction(&mut transaction, &command).await?;
@@ -203,9 +208,7 @@ impl ProfileAuthoringService {
         let activation_changed = previous_active != command.is_active;
         let materializations = if profile_mode == ProfileMode::Capability {
             let coordinator = MaterializationCoordinator::new(self.pool.clone());
-            let default_config_mode = default_config_mode
-                .as_deref()
-                .expect("Capability Profile save loaded the default configuration mode");
+            let default_config_mode = default_config_mode.as_str();
             let consumer_ids =
                 load_affected_consumer_ids(&mut transaction, &profile_id, activation_changed, default_config_mode)
                     .await?;
@@ -228,6 +231,30 @@ impl ProfileAuthoringService {
                 materializations.push(ConsumerMaterialization { consumer_id, commit });
             }
             materializations
+        } else if profile_mode == ProfileMode::Workflow {
+            let coordinator = MaterializationCoordinator::new(self.pool.clone());
+            let consumer_ids = load_unify_consumer_ids_in_transaction(&mut transaction, &default_config_mode)
+                .await
+                .map_err(|error| ProfileAuthoringError::InvalidRequest(error.to_string()))?;
+            let trigger = MaterializationTrigger::for_consumer(
+                "workflow_publication_save",
+                format!("{profile_id}:{}", uuid::Uuid::new_v4()),
+                actor,
+            );
+            let mut materializations = Vec::with_capacity(consumer_ids.len());
+            for consumer_id in consumer_ids {
+                let commit = coordinator
+                    .compile_consumer_in_transaction_with_default(
+                        &mut transaction,
+                        &consumer_id,
+                        &default_config_mode,
+                        &trigger,
+                    )
+                    .await
+                    .map_err(map_materialization_error)?;
+                materializations.push(ConsumerMaterialization { consumer_id, commit });
+            }
+            materializations
         } else {
             Vec::new()
         };
@@ -242,6 +269,18 @@ impl ProfileAuthoringService {
         let skill_directory_change = self
             .synchronize_skill_name_in_transaction(&mut transaction, profile_mode, &profile_id, &command)
             .await?;
+        if let Err(error) = persist_package_distribution(
+            &mut transaction,
+            profile_mode,
+            &profile_id,
+            command.package_distribution,
+        )
+        .await
+        {
+            self.rollback_skill_directory_change(skill_directory_change, error.to_string())
+                .await?;
+            return Err(error);
+        }
         let mut staged_projection = None;
         let _package_guard = if profile_mode == ProfileMode::Workflow
             && let Some(skills_root) = self.skills_root.clone()
@@ -366,6 +405,33 @@ impl ProfileAuthoringService {
     }
 }
 
+async fn persist_package_distribution(
+    transaction: &mut Transaction<'_, Sqlite>,
+    profile_mode: ProfileMode,
+    profile_id: &str,
+    distribution: Option<SkillPackageDistribution>,
+) -> Result<(), ProfileAuthoringError> {
+    if profile_mode != ProfileMode::Workflow {
+        return Ok(());
+    }
+    if let Some(distribution) = distribution {
+        sqlx::query(
+            "INSERT INTO workflow_profile_skill_settings (profile_id, package_distribution) VALUES (?, ?) \
+             ON CONFLICT(profile_id) DO UPDATE SET package_distribution = excluded.package_distribution",
+        )
+        .bind(profile_id)
+        .bind(distribution.as_str())
+        .execute(&mut **transaction)
+        .await?;
+    } else {
+        sqlx::query("DELETE FROM workflow_profile_skill_settings WHERE profile_id = ?")
+            .bind(profile_id)
+            .execute(&mut **transaction)
+            .await?;
+    }
+    Ok(())
+}
+
 fn validate_command(command: &ProfileAuthoringCommand) -> Result<(), ProfileAuthoringError> {
     match (&command.id, command.expected_authoring_generation) {
         (None, None) | (Some(_), Some(_)) => {}
@@ -417,9 +483,14 @@ fn validate_profile_mode_command(
             "Workflow guidance is only supported by Workflow Profiles".to_string(),
         ));
     }
-    if profile_mode == ProfileMode::Workflow && (command.is_active || command.is_default) {
+    if profile_mode == ProfileMode::Capability && command.package_distribution.is_some() {
         return Err(ProfileAuthoringError::InvalidRequest(
-            "workflow Profiles must remain inactive and non-default".to_string(),
+            "Skill package distribution is only supported by Workflow Profiles".to_string(),
+        ));
+    }
+    if profile_mode == ProfileMode::Workflow && command.is_default {
+        return Err(ProfileAuthoringError::InvalidRequest(
+            "workflow Profiles cannot be the default Profile".to_string(),
         ));
     }
     if profile_mode == ProfileMode::Workflow
@@ -876,6 +947,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: Some(ProfileMode::Workflow),
                     skill_name: Some("metadata-workflow".to_string()),
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",
@@ -898,6 +970,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: Some(ProfileMode::Workflow),
                     skill_name: Some("metadata-workflow".to_string()),
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",
@@ -927,6 +1000,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: Some(ProfileMode::Workflow),
                     skill_name: Some("metadata-workflow".to_string()),
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",
@@ -970,6 +1044,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: Some(ProfileMode::Workflow),
                     skill_name: Some("rename-before".to_string()),
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",
@@ -997,6 +1072,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: Some(ProfileMode::Workflow),
                     skill_name: Some("rename-after".to_string()),
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",
@@ -1066,6 +1142,7 @@ mod tests {
                     clone_from_id: None,
                     profile_mode: None,
                     skill_name: None,
+                    package_distribution: None,
                     workflow_guidance: None,
                 },
                 "test",

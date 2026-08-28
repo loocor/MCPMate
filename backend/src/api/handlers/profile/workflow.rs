@@ -55,5 +55,6 @@ pub(super) fn workflow_specification_error(error: WorkflowSpecificationError) ->
         WorkflowSpecificationError::Database(_) | WorkflowSpecificationError::Capability(_) => {
             ApiError::InternalError("Workflow specification failed".to_string())
         }
+        WorkflowSpecificationError::SurfacePublication(message) => ApiError::InternalError(message),
     }
 }

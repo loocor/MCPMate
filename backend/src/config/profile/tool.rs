@@ -39,7 +39,7 @@ impl ToolStatusService {
             JOIN server_tools st
               ON st.server_id = cr.server_id
              AND st.tool_name = cr.origin_key
-            WHERE p.is_active = 1
+            WHERE p.is_active = 1 AND p.profile_mode != 'workflow'
               AND cr.kind = 'tools'
               AND sc.name = ?
               AND cr.origin_key = ?
@@ -77,7 +77,7 @@ pub fn build_enabled_tools_query(additional_where: Option<&str>) -> String {
           ON st.server_id = cr.server_id
          AND st.tool_name = cr.origin_key
         JOIN server_config sc ON sc.id = cr.server_id
-        WHERE p.is_active = 1
+        WHERE p.is_active = 1 AND p.profile_mode != 'workflow'
           AND pcr.enabled = 1
           AND cr.state = 'active'
           AND cr.kind = 'tools'

@@ -851,8 +851,21 @@ async fn load_impacted_consumers(
             vec![owner.owner_id.clone()]
         }
         ReviewOwnerType::StandardProfile | ReviewOwnerType::ProfileServerExposure => {
-            let rows = sqlx::query_as::<_, (String, Option<String>)>(
-                r#"
+            let profile_mode: Option<String> = sqlx::query_scalar("SELECT profile_mode FROM profile WHERE id = ?")
+                .bind(&owner.owner_id)
+                .fetch_optional(&mut **transaction)
+                .await
+                .map_err(|error| ApiError::InternalError(error.to_string()))?;
+            if profile_mode.as_deref() == Some("workflow") {
+                crate::core::profile::publication::load_unify_consumer_ids_in_transaction(
+                    transaction,
+                    default_config_mode,
+                )
+                .await
+                .map_err(|error| ApiError::InternalError(error.to_string()))?
+            } else {
+                let rows = sqlx::query_as::<_, (String, Option<String>)>(
+                    r#"
                 SELECT DISTINCT client.identifier
                      , client.config_mode
                 FROM client
@@ -862,7 +875,7 @@ async fn load_impacted_consumers(
                       client.capability_source = 'activated'
                       AND EXISTS (
                         SELECT 1 FROM profile
-                        WHERE profile.id = ? AND profile.is_active = 1
+                        WHERE profile.id = ? AND profile.is_active = 1 AND profile.profile_mode != 'workflow'
                       )
                     )
                     OR (
@@ -874,13 +887,14 @@ async fn load_impacted_consumers(
                     )
                   )
                 "#,
-            )
-            .bind(&owner.owner_id)
-            .bind(&owner.owner_id)
-            .fetch_all(&mut **transaction)
-            .await
-            .map_err(database_error)?;
-            filter_managed_consumers(rows, default_config_mode)
+                )
+                .bind(&owner.owner_id)
+                .bind(&owner.owner_id)
+                .fetch_all(&mut **transaction)
+                .await
+                .map_err(database_error)?;
+                filter_managed_consumers(rows, default_config_mode)
+            }
         }
         ReviewOwnerType::CustomProfile => {
             let rows = sqlx::query_as::<_, (String, Option<String>)>(

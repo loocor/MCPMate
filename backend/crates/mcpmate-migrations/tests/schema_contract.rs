@@ -915,7 +915,7 @@ async fn adopts_complete_epoch_four_capability_storage_without_losing_data() {
     .fetch_one(&pool)
     .await
     .expect("load adopted migration version");
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
 }
 
 #[tokio::test]

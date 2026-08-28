@@ -699,7 +699,7 @@ export function ProfilePage() {
 				enableSwitch={{
 					checked: suit.is_active,
 					onChange: () => handleSuitToggle(suit),
-					disabled: isTogglePending || isDefaultAnchor || suit.profile_mode === "workflow",
+					disabled: isTogglePending || isDefaultAnchor,
 				}}
 				onClick={() => navigate(`/profiles/${suit.id}`)}
 				className={

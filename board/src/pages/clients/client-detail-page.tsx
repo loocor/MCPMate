@@ -97,6 +97,7 @@ import {
   serversApi,
 } from "../../lib/api";
 import { resolveAutoAddTargetProfileId } from "../../lib/default-profile";
+import { isCapabilityWorkingSetProfile } from "../../lib/profile-authoring-ui";
 import { buildClientServersImportRequest } from "../../lib/server-import-payload";
 import { invalidateServerCatalogAfterImport } from "../../lib/server-query-cache";
 import { profileSyncErrorTranslationKey } from "../../lib/profile-sync-error";
@@ -559,13 +560,20 @@ export function ClientDetailPage() {
   const activeProfiles = useMemo(() => {
     const profiles: ConfigSuit[] = profilesData?.suits || [];
     return arrangeProfilesWithDefaultFirst(
-      profiles.filter((profile) => profile.is_active),
+      profiles.filter(
+        (profile) =>
+          profile.is_active && isCapabilityWorkingSetProfile(profile),
+      ),
     );
   }, [profilesData?.suits]);
   const sharedProfiles = useMemo(() => {
     const profiles: ConfigSuit[] = profilesData?.suits || [];
     return arrangeProfilesWithDefaultFirst(
-      profiles.filter((profile) => profile.suit_type === "shared"),
+      profiles.filter(
+        (profile) =>
+          profile.suit_type === "shared" &&
+          isCapabilityWorkingSetProfile(profile),
+      ),
     );
   }, [profilesData?.suits]);
 

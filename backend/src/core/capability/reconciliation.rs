@@ -703,7 +703,7 @@ async fn affected_consumers(
                     SELECT 1 FROM json_each(c.selected_profile_ids)
                     WHERE json_each.value = p.profile_id
                 )
-                OR (c.capability_source = 'activated' AND profile_record.is_active = 1)
+                OR (c.capability_source = 'activated' AND profile_record.is_active = 1 AND profile_record.profile_mode != 'workflow')
             )
             WHERE p.server_id = ? AND ? = 1
             UNION
@@ -717,7 +717,7 @@ async fn affected_consumers(
                     SELECT 1 FROM json_each(c.selected_profile_ids)
                     WHERE json_each.value = profile_ref.profile_id
                 )
-                OR (c.capability_source = 'activated' AND profile_record.is_active = 1)
+                OR (c.capability_source = 'activated' AND profile_record.is_active = 1 AND profile_record.profile_mode != 'workflow')
             )
             WHERE capability_ref.server_id = ? AND profile_ref.enabled = 1 AND ? = 1
         ),
