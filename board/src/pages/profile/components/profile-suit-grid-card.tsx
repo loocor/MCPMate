@@ -96,7 +96,7 @@ export function ProfileSuitGridCard({
 				<Switch
 					checked={suit.is_active}
 					onCheckedChange={onToggle}
-					disabled={isTogglePending || isDefaultAnchor || isWorkflowProfile}
+					disabled={isTogglePending || isDefaultAnchor}
 					onClick={(e) => e.stopPropagation()}
 				/>
 			}

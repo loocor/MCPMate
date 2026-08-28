@@ -160,6 +160,12 @@ pub(super) async fn list_resources(
     let mut resources = surface.resources();
     if matches!(client.config_mode.as_deref(), Some("unify")) {
         resources.insert(0, super::resource_guide::listed_resource());
+        if let Some(database) = server.database.as_ref() {
+            resources.extend(
+                super::skill_resources::listed_resources_for_client(&database.pool, client.config_mode.as_deref())
+                    .await?,
+            );
+        }
         let mut seen_uris = HashSet::new();
         resources.retain(|resource| seen_uris.insert(resource.uri.clone()));
     }
@@ -224,6 +230,19 @@ pub(super) async fn read_resource(
         && let Some(result) = super::resource_guide::try_read(&request.uri)
     {
         return result;
+    }
+    if let Some(database) = server.database.as_ref() {
+        let skills_root = super::skill_resources::skills_root_from_database_path(&database.path);
+        if let Some(result) = super::skill_resources::try_read_for_client(
+            &database.pool,
+            &skills_root,
+            &request.uri,
+            client.config_mode.as_deref(),
+        )
+        .await
+        {
+            return result;
+        }
     }
     tracing::debug!("Reading resource: {}", request.uri);
 

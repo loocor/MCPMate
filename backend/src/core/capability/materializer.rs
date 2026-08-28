@@ -518,7 +518,9 @@ impl SurfaceAuthoringLoader {
             ProfileScopePolicy::Ignored => Vec::new(),
             ProfileScopePolicy::Activated => {
                 let ids: Vec<String> =
-                    sqlx::query_scalar("SELECT id FROM profile WHERE is_active = 1 ORDER BY priority DESC, id")
+                    sqlx::query_scalar(
+                        "SELECT id FROM profile WHERE is_active = 1 AND profile_mode != 'workflow' ORDER BY priority DESC, id",
+                    )
                         .fetch_all(&mut **transaction)
                         .await?;
                 ids.into_iter()
@@ -820,6 +822,12 @@ impl SurfaceAuthoringLoader {
                     .map(|record| AuthoringRelationship::builtin(owner_id, record)),
             );
         }
+        if matches!(
+            direct_exposure_policy,
+            DirectExposurePolicy::None | DirectExposurePolicy::ServerLevel | DirectExposurePolicy::CapabilityLevel
+        ) {
+            relationships.extend(load_published_workflow_direct_relationships(transaction).await?);
+        }
         Ok(relationships)
     }
 
@@ -986,6 +994,61 @@ fn parse_authoring_row(
         level,
         new_ref_policy,
     ))
+}
+
+async fn load_published_workflow_direct_relationships(
+    transaction: &mut Transaction<'_, Sqlite>
+) -> Result<Vec<AuthoringRelationship>> {
+    let directs = crate::core::profile::publication::load_published_workflow_direct_refs_in_transaction(transaction)
+        .await
+        .map_err(|error| CatalogError::InvalidSurfaceValue {
+            field: "published workflow directs",
+            value: error.to_string(),
+        })?;
+    if directs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ref_ids = directs.iter().map(|item| item.ref_id.as_str()).collect::<Vec<_>>();
+    let ref_ids_json = serde_json::to_string(&ref_ids)?;
+    let rows = sqlx::query(
+        r#"
+        SELECT r.ref_id, r.kind, v.canonical_record
+        FROM capability_refs r
+        JOIN server_config server ON server.id = r.server_id AND server.enabled = 1
+        LEFT JOIN capability_ref_current c ON c.ref_id = r.ref_id
+        JOIN capability_versions v ON v.capability_id = COALESCE(
+            c.capability_id,
+            (
+                SELECT previous.capability_id
+                FROM capability_versions previous
+                WHERE previous.ref_id = r.ref_id
+                ORDER BY previous.first_observed_revision DESC, previous.capability_id
+                LIMIT 1
+            )
+        )
+        WHERE r.ref_id IN (SELECT value FROM json_each(?))
+          AND r.state <> 'retired'
+        "#,
+    )
+    .bind(ref_ids_json)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut relationships = Vec::with_capacity(rows.len());
+    for row in rows {
+        let ref_id: String = row.try_get("ref_id")?;
+        let owner_id = directs
+            .iter()
+            .find(|item| item.ref_id == ref_id)
+            .map(|item| item.profile_id.as_str())
+            .unwrap_or("workflow");
+        relationships.push(parse_authoring_row(
+            row,
+            SurfaceReviewOwner::new(mcpmate_capability_store::ReviewOwnerType::StandardProfile, owner_id),
+            RelationshipLevel::Capability,
+            NewRefPolicy::Review,
+        )?);
+    }
+    Ok(relationships)
 }
 
 fn parse_new_ref_policy(value: &str) -> Result<NewRefPolicy> {

@@ -427,12 +427,13 @@ struct SurfaceDirectoryItem {
     summary: Option<String>,
     action: &'static str,
     next_step: &'static str,
+    #[serde(skip)]
     server_id: String,
-    server_name: String,
     interaction_mode: &'static str,
     detail_hint: &'static str,
     /// Intentionally raw string (e.g. "registry:google-ads") for LLM prompt consumption.
     /// The structured API surface uses `ServerSource` objects instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
 }
 
@@ -521,6 +522,8 @@ struct WorkflowHints {
     resource_template: Vec<String>,
     #[serde(default = "default_workflow_hints_profile")]
     profile: Vec<String>,
+    #[serde(default = "default_workflow_hints_skill")]
+    skill: Vec<String>,
 }
 
 impl Default for WorkflowHints {
@@ -531,6 +534,7 @@ impl Default for WorkflowHints {
             resource: default_workflow_hints_resource(),
             resource_template: default_workflow_hints_resource_template(),
             profile: default_workflow_hints_profile(),
+            skill: default_workflow_hints_skill(),
         }
     }
 }
@@ -542,6 +546,7 @@ impl WorkflowHints {
         self.resource = normalize_string_list(std::mem::take(&mut self.resource));
         self.resource_template = normalize_string_list(std::mem::take(&mut self.resource_template));
         self.profile = normalize_string_list(std::mem::take(&mut self.profile));
+        self.skill = normalize_string_list(std::mem::take(&mut self.skill));
     }
 }
 
@@ -573,8 +578,16 @@ fn default_workflow_hints_resource_template() -> Vec<String> {
 
 fn default_workflow_hints_profile() -> Vec<String> {
     vec![
-        "Profiles are selectable bundles that shape the MCP surface. Discover with mcpmate_ucan_catalog(kind_filter=[\"profile\"]), then inspect the selected surface item before activating via mcpmate_profile_set.".to_string(),
+        "Capability Profiles are selectable bundles that shape the MCP surface. Inspect first, then activate with mcpmate_profile_set.".to_string(),
         "After profile selection changes, exposed tools update automatically. Re-fetch tools/list if your client does not auto-refresh.".to_string(),
+    ]
+}
+
+fn default_workflow_hints_skill() -> Vec<String> {
+    vec![
+        "Read details.skill_resource with resources/read. Do not embed or invent a second Skill body.".to_string(),
+        "Direct capabilities are invoked from the directory after details. Meta capabilities stay on catalog/details/call.".to_string(),
+        "Do not activate a Workflow Profile with mcpmate_profile_set.".to_string(),
     ]
 }
 
@@ -741,7 +754,9 @@ struct ArgumentTip {
 struct SurfaceDetailsResponse {
     capability_kind: SurfaceKind,
     capability_name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     server_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     server_name: String,
     detail_level: UcanDetailLevel,
     details: serde_json::Value,
@@ -926,7 +941,9 @@ fn retain_brokered_tools(
             eligible_server_ids,
             &entry.server_id,
             &entry.raw_tool_name,
-        )
+        ) && !context
+            .workflow_direct
+            .contains_tool(&entry.server_id, &entry.raw_tool_name)
     });
 }
 
@@ -941,7 +958,9 @@ fn retain_brokered_prompts(
             eligible_server_ids,
             &entry.server_id,
             &entry.raw_prompt_name,
-        )
+        ) && !context
+            .workflow_direct
+            .contains_prompt(&entry.server_id, &entry.raw_prompt_name)
     });
 }
 
@@ -956,7 +975,9 @@ fn retain_brokered_resources(
             eligible_server_ids,
             &entry.server_id,
             &entry.raw_resource_uri,
-        )
+        ) && !context
+            .workflow_direct
+            .contains_resource(&entry.server_id, &entry.raw_resource_uri)
     });
 }
 
@@ -971,7 +992,9 @@ fn retain_brokered_resource_templates(
             eligible_server_ids,
             &entry.server_id,
             &entry.raw_uri_template,
-        )
+        ) && !context
+            .workflow_direct
+            .contains_template(&entry.server_id, &entry.raw_uri_template)
     });
 }
 
@@ -1111,7 +1134,6 @@ impl BrokerService {
                     action: "inspect_first",
                     next_step: "details",
                     server_id: entry.server_id,
-                    server_name: entry.server_name,
                     interaction_mode: "model_controlled",
                     detail_hint: "Use mcpmate_ucan_details with detail_level=summary first; switch to full before constructing arguments if needed.",
                     source,
@@ -1129,7 +1151,6 @@ impl BrokerService {
                     action: "inspect_first",
                     next_step: "details",
                     server_id: entry.server_id,
-                    server_name: entry.server_name,
                     interaction_mode: "user_controlled_template",
                     detail_hint: "Prompt results are brokered through mcpmate_ucan_call; inspect arguments with mcpmate_ucan_details first.",
                     source,
@@ -1146,7 +1167,6 @@ impl BrokerService {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: entry.server_id,
-                server_name: entry.server_name,
                 interaction_mode: "application_context",
                 detail_hint: "Inspect resource details, then invoke resources/read with the canonical URI.",
                 source,
@@ -1163,13 +1183,36 @@ impl BrokerService {
                     action: "inspect_first",
                     next_step: "details",
                     server_id: entry.server_id,
-                    server_name: entry.server_name,
                     interaction_mode: "application_context_template",
                     detail_hint: "Inspect the canonical URI template, expand its RFC 6570 variables, then invoke resources/read with the concrete URI.",
                     source,
                 }
             }),
         );
+
+        if matches!(context.config_mode.as_deref(), Some("unify")) {
+            if let Ok(packages) =
+                crate::core::profile::publication::load_published_skill_packages(&self.database.pool).await
+            {
+                for package in packages {
+                    let summary_text = crate::core::profile::publication::skill_catalog_summary(
+                        package.description.as_deref(),
+                        &package.step_titles,
+                    );
+                    summaries.push(SurfaceDirectoryItem {
+                        capability_name: package.skill_name.clone(),
+                        capability_kind: SurfaceKind::Profile,
+                        summary: (!summary_text.is_empty()).then_some(summary_text),
+                        action: "inspect_first",
+                        next_step: "details",
+                        server_id: String::new(),
+                        interaction_mode: "skill_specification",
+                        detail_hint: "Inspect with mcpmate_ucan_details, then resources/read the skill_resource.",
+                        source: None,
+                    });
+                }
+            }
+        }
 
         // In Hosted mode with Profiles source, include profile entries in the catalog.
         if profile_capabilities_visible(context) {
@@ -1203,10 +1246,9 @@ impl BrokerService {
                         summary: Some(summary_text),
                         action: "inspect_first",
                         next_step: "details",
-                        server_id: format!("profile:{}", profile_id),
-                        server_name: prof.name.clone(),
+                        server_id: String::new(),
                         interaction_mode: "scope_managed",
-                        detail_hint: "Use this surface item's capability_kind and capability_name with mcpmate_ucan_details to see all surface items in this profile. Activate via mcpmate_profile_set(profile_ids=[profile_id]).",
+                        detail_hint: "Inspect with mcpmate_ucan_details using capability_kind and capability_name.",
                         source: None,
                     });
                 }
@@ -1296,8 +1338,6 @@ impl BrokerService {
                     "summary".to_string(),
                     "action".to_string(),
                     "next_step".to_string(),
-                    "server_id".to_string(),
-                    "server_name".to_string(),
                     "interaction_mode".to_string(),
                     "detail_hint".to_string(),
                     "source".to_string(),
@@ -1353,17 +1393,27 @@ impl BrokerService {
                 .map(|entry| entry.resource_template.uri_template.to_string())
                 .collect(),
             SurfaceKind::Profile => {
-                if !profile_capabilities_visible(context) {
-                    Vec::new()
-                } else {
-                    profile_repo::get_all_profile(&self.database.pool)
-                        .await
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|p| matches!(p.profile_type, ProfileType::Shared))
-                        .filter_map(|p| p.id.clone())
-                        .collect()
+                let mut names = Vec::new();
+                if matches!(context.config_mode.as_deref(), Some("unify")) {
+                    if let Ok(packages) =
+                        crate::core::profile::publication::load_published_skill_packages(&self.database.pool).await
+                    {
+                        names.extend(packages.into_iter().map(|package| package.skill_name));
+                    }
                 }
+                if profile_capabilities_visible(context) {
+                    names.extend(
+                        profile_repo::get_all_profile(&self.database.pool)
+                            .await
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|p| matches!(p.profile_type, ProfileType::Shared))
+                            .filter_map(|p| p.id.clone()),
+                    );
+                }
+                names.sort();
+                names.dedup();
+                names
             }
         };
         Ok(names)
@@ -1378,7 +1428,7 @@ impl BrokerService {
     ) -> Result<CallToolResult> {
         let prompt_config = self.ucan_prompt_config().await;
         let mut resource_link = None;
-        let workflow_hints = match capability_kind {
+        let mut workflow_hints = match capability_kind {
             SurfaceKind::Tool => prompt_config.workflow_hints.tool.clone(),
             SurfaceKind::Prompt => prompt_config.workflow_hints.prompt.clone(),
             SurfaceKind::Resource => prompt_config.workflow_hints.resource.clone(),
@@ -1541,79 +1591,130 @@ impl BrokerService {
                 }
             }
             SurfaceKind::Profile => {
-                if !profile_capabilities_visible(context) {
+                let workflow_package = if matches!(context.config_mode.as_deref(), Some("unify")) {
+                    crate::core::profile::publication::load_published_skill_packages(&self.database.pool)
+                        .await
+                        .ok()
+                        .and_then(|packages| {
+                            packages
+                                .into_iter()
+                                .find(|package| package.skill_name == capability_name)
+                        })
+                } else {
+                    None
+                };
+                if let Some(package) = workflow_package {
+                    let skill_uri = crate::core::profile::publication::skill_resource_uri(&package.skill_name);
+                    resource_link = Some(
+                        Resource::new(skill_uri.clone(), package.skill_name.clone()).with_mime_type("text/markdown"),
+                    );
+                    workflow_hints = prompt_config.workflow_hints.skill.clone();
+                    let details = match detail_level {
+                        UcanDetailLevel::Summary => serde_json::json!({
+                            "description": package.description,
+                            "skill_resource": skill_uri,
+                            "read_with": "resources/read",
+                            "steps": package.step_titles,
+                        }),
+                        UcanDetailLevel::Full => serde_json::json!({
+                            "description": package.description,
+                            "skill_resource": skill_uri,
+                            "read_with": "resources/read",
+                            "steps": package.step_titles,
+                            "direct_capabilities": package.direct_capabilities,
+                            "meta_capabilities": package.meta_capabilities,
+                        }),
+                    };
+                    SurfaceDetailsResponse {
+                        capability_kind,
+                        capability_name: package.skill_name,
+                        server_id: String::new(),
+                        server_name: String::new(),
+                        detail_level,
+                        details,
+                        workflow_hints,
+                        related_capabilities: Vec::new(),
+                        argument_tips: Vec::new(),
+                        call_requirements: CallRequirements {
+                            accepts_arguments: false,
+                            required_arguments: Vec::new(),
+                            call_ready_without_arguments: true,
+                        },
+                        error_recovery_hint: format!(
+                            "Read {skill_uri} with resources/read. Direct capabilities are invoked from the directory; Meta capabilities stay on catalog/details/call."
+                        ),
+                    }
+                } else if !profile_capabilities_visible(context) {
                     let surface_names = self.collect_surface_names_for_kind(context, capability_kind).await?;
                     return Ok(
                         UcanError::capability_not_found("profile", capability_name, &surface_names)
                             .to_call_tool_result(),
                     );
-                }
-
-                let profiles = profile_repo::get_all_profile(&self.database.pool)
-                    .await
-                    .context("Failed to list profiles")?;
-                let profile = profiles.into_iter().find(|p| {
-                    matches!(p.profile_type, ProfileType::Shared)
-                        && p.id.as_deref().is_some_and(|profile_id| profile_id == capability_name)
-                });
-                match profile {
-                    Some(prof) => {
-                        let profile_id = prof.id.as_deref().unwrap_or_default();
-                        let detail_components = load_profile_detail_components(&self.database.pool, profile_id)
-                            .await
-                            .context("Failed to load profile detail components")?;
-                        let details = serde_json::json!({
-                            "id": profile_id,
-                            "name": prof.name,
-                            "description": prof.description,
-                            "is_active": prof.is_active,
-                            "profile_type": prof.profile_type.to_string(),
-                            "servers": detail_components.servers,
-                            "tools": detail_components.tools,
-                            "prompts": detail_components.prompts,
-                            "resources": detail_components.resources,
-                        });
-                        let detail_value = match detail_level {
-                            UcanDetailLevel::Summary => {
-                                serde_json::json!({
-                                    "id": profile_id,
-                                    "name": prof.name,
-                                    "description": prof.description,
-                                    "is_active": prof.is_active,
-                                    "server_count": detail_components.servers.len(),
-                                    "tool_count": detail_components.tools.len(),
-                                    "prompt_count": detail_components.prompts.len(),
-                                    "resource_count": detail_components.resources.len(),
-                                })
+                } else {
+                    let profiles = profile_repo::get_all_profile(&self.database.pool)
+                        .await
+                        .context("Failed to list profiles")?;
+                    let profile = profiles.into_iter().find(|p| {
+                        matches!(p.profile_type, ProfileType::Shared)
+                            && p.id.as_deref().is_some_and(|profile_id| profile_id == capability_name)
+                    });
+                    match profile {
+                        Some(prof) => {
+                            let profile_id = prof.id.as_deref().unwrap_or_default();
+                            let detail_components = load_profile_detail_components(&self.database.pool, profile_id)
+                                .await
+                                .context("Failed to load profile detail components")?;
+                            let details = serde_json::json!({
+                                "name": prof.name,
+                                "description": prof.description,
+                                "is_active": prof.is_active,
+                                "profile_type": prof.profile_type.to_string(),
+                                "servers": detail_components.servers,
+                                "tools": detail_components.tools,
+                                "prompts": detail_components.prompts,
+                                "resources": detail_components.resources,
+                            });
+                            let detail_value = match detail_level {
+                                UcanDetailLevel::Summary => {
+                                    serde_json::json!({
+                                        "name": prof.name,
+                                        "description": prof.description,
+                                        "is_active": prof.is_active,
+                                        "server_count": detail_components.servers.len(),
+                                        "tool_count": detail_components.tools.len(),
+                                        "prompt_count": detail_components.prompts.len(),
+                                        "resource_count": detail_components.resources.len(),
+                                    })
+                                }
+                                UcanDetailLevel::Full => details,
+                            };
+                            SurfaceDetailsResponse {
+                                capability_kind,
+                                capability_name: profile_id.to_string(),
+                                server_id: String::new(),
+                                server_name: String::new(),
+                                detail_level,
+                                details: detail_value,
+                                workflow_hints,
+                                related_capabilities: Vec::new(),
+                                argument_tips: Vec::new(),
+                                call_requirements: CallRequirements {
+                                    accepts_arguments: false,
+                                    required_arguments: Vec::new(),
+                                    call_ready_without_arguments: true,
+                                },
+                                error_recovery_hint:
+                                    "Activate this profile via mcpmate_profile_set, then call exposed tools directly."
+                                        .to_string(),
                             }
-                            UcanDetailLevel::Full => details,
-                        };
-                        SurfaceDetailsResponse {
-                            capability_kind,
-                            capability_name: profile_id.to_string(),
-                            server_id: format!("profile:{}", profile_id),
-                            server_name: prof.name.clone(),
-                            detail_level,
-                            details: detail_value,
-                            workflow_hints,
-                            related_capabilities: Vec::new(),
-                            argument_tips: Vec::new(),
-                            call_requirements: CallRequirements {
-                                accepts_arguments: false,
-                                required_arguments: Vec::new(),
-                                call_ready_without_arguments: true,
-                            },
-                            error_recovery_hint:
-                                "Activate this profile via mcpmate_profile_set, then call exposed tools directly."
-                                    .to_string(),
                         }
-                    }
-                    None => {
-                        let surface_names = self.collect_surface_names_for_kind(context, capability_kind).await?;
-                        return Ok(
-                            UcanError::capability_not_found("profile", capability_name, &surface_names)
-                                .to_call_tool_result(),
-                        );
+                        None => {
+                            let surface_names = self.collect_surface_names_for_kind(context, capability_kind).await?;
+                            return Ok(
+                                UcanError::capability_not_found("profile", capability_name, &surface_names)
+                                    .to_call_tool_result(),
+                            );
+                        }
                     }
                 }
             }
@@ -2970,8 +3071,6 @@ fn default_ucan_prompt_config() -> UcanPromptConfig {
             "summary".to_string(),
             "action".to_string(),
             "next_step".to_string(),
-            "server_id".to_string(),
-            "server_name".to_string(),
             "interaction_mode".to_string(),
             "detail_hint".to_string(),
             "source".to_string(),
@@ -3325,6 +3424,7 @@ mod tests {
             selected_profile_ids: Vec::new(),
             custom_profile_id: None,
             unify_workspace: None,
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         }
     }
 
@@ -4231,6 +4331,7 @@ mod tests {
                 selected_resource_surfaces: Vec::new(),
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![VisibleToolEntry {
             server_id: "server-a".to_string(),
@@ -4264,6 +4365,7 @@ mod tests {
                 selected_resource_surfaces: Vec::new(),
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleToolEntry {
@@ -4287,6 +4389,50 @@ mod tests {
     }
 
     #[test]
+    fn workflow_direct_tools_are_removed_from_unify_catalog() {
+        let mut workflow_direct = crate::core::profile::publication::PublishedWorkflowDirectSet::default();
+        workflow_direct
+            .tools
+            .insert(("server-a".to_string(), "tool-one".to_string()));
+        let context = ClientBuiltinContext {
+            client_id: "client-1".to_string(),
+            session_id: Some("session-1".to_string()),
+            config_mode: Some("unify".to_string()),
+            capability_source: CapabilitySource::Profiles,
+            selected_profile_ids: Vec::new(),
+            custom_profile_id: None,
+            unify_workspace: Some(UnifyDirectExposureConfig {
+                route_mode: UnifyRouteMode::BrokerOnly,
+                selected_server_ids: vec!["server-a".to_string()],
+                selected_tool_surfaces: Vec::new(),
+                selected_prompt_surfaces: Vec::new(),
+                selected_resource_surfaces: Vec::new(),
+                selected_template_surfaces: Vec::new(),
+            }),
+            workflow_direct,
+        };
+        let mut visible = vec![
+            VisibleToolEntry {
+                server_id: "server-a".to_string(),
+                server_name: "Server A".to_string(),
+                raw_tool_name: "tool-one".to_string(),
+                tool: Tool::new("server-a__tool-one", "demo", Arc::new(serde_json::Map::new())),
+            },
+            VisibleToolEntry {
+                server_id: "server-a".to_string(),
+                server_name: "Server A".to_string(),
+                raw_tool_name: "tool-two".to_string(),
+                tool: Tool::new("server-a__tool-two", "demo", Arc::new(serde_json::Map::new())),
+            },
+        ];
+
+        retain_brokered_tools(&context, &HashSet::from(["server-a".to_string()]), &mut visible);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].tool.name.as_ref(), "server-a__tool-two");
+    }
+
+    #[test]
     fn unify_direct_exposure_catalog_exclusion_removes_only_selected_capability_level_tools() {
         let context = ClientBuiltinContext {
             client_id: "client-1".to_string(),
@@ -4306,6 +4452,7 @@ mod tests {
                 selected_resource_surfaces: Vec::new(),
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleToolEntry {
@@ -4348,6 +4495,7 @@ mod tests {
                 selected_resource_surfaces: Vec::new(),
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisiblePromptEntry {
@@ -4398,6 +4546,7 @@ mod tests {
                 selected_resource_surfaces: Vec::new(),
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisiblePromptEntry {
@@ -4448,6 +4597,7 @@ mod tests {
                 }],
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleResourceEntry {
@@ -4490,6 +4640,7 @@ mod tests {
                 }],
                 selected_template_surfaces: Vec::new(),
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleResourceEntry {
@@ -4532,6 +4683,7 @@ mod tests {
                     uri_template: "server-a://{id}".to_string(),
                 }],
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleResourceTemplateEntry {
@@ -4574,6 +4726,7 @@ mod tests {
                     uri_template: "server-a://{id}".to_string(),
                 }],
             }),
+            workflow_direct: crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
         };
         let mut visible = vec![
             VisibleResourceTemplateEntry {
@@ -4859,6 +5012,48 @@ mod tests {
     }
 
     #[test]
+    fn catalog_items_omit_internal_server_identity_and_absent_source() {
+        use super::{SurfaceDirectoryItem, SurfaceKind};
+
+        let item = SurfaceDirectoryItem {
+            capability_name: "screenshot".to_string(),
+            capability_kind: SurfaceKind::Profile,
+            summary: Some("Capture a page".to_string()),
+            action: "inspect_first",
+            next_step: "details",
+            server_id: "profile:PROF19".to_string(),
+            interaction_mode: "skill_specification",
+            detail_hint: "Inspect with mcpmate_ucan_details, then resources/read the skill_resource.",
+            source: None,
+        };
+        let value = serde_json::to_value(&item).expect("serialize catalog item");
+        let object = value.as_object().expect("object");
+        assert_eq!(
+            object.get("capability_name").and_then(|value| value.as_str()),
+            Some("screenshot")
+        );
+        assert!(!object.contains_key("server_id"));
+        assert!(!object.contains_key("server_name"));
+        assert!(!object.contains_key("source"));
+    }
+
+    #[test]
+    fn skill_hints_do_not_activate_workflow_profiles() {
+        let hints = super::default_workflow_hints_skill();
+        assert!(hints.iter().any(|hint| hint.contains("resources/read")));
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.contains("Do not activate a Workflow Profile with mcpmate_profile_set."))
+        );
+        assert!(
+            !hints
+                .iter()
+                .any(|hint| hint.contains("then activate with mcpmate_profile_set"))
+        );
+    }
+
+    #[test]
     fn test_catalog_search_filter_logic() {
         use super::{SurfaceDirectoryItem, SurfaceKind};
 
@@ -4870,7 +5065,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "server-1".to_string(),
-                server_name: "filesystem".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "Use details first.",
                 source: None,
@@ -4882,7 +5076,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "server-1".to_string(),
-                server_name: "filesystem".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "Use details first.",
                 source: None,
@@ -4894,7 +5087,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "server-1".to_string(),
-                server_name: "filesystem".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "Use details first.",
                 source: None,
@@ -4933,7 +5125,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "server-2".to_string(),
-                server_name: "shell".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "Use details first.",
                 source: None,
@@ -4945,7 +5136,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "server-3".to_string(),
-                server_name: "weather".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "Use details first.",
                 source: None,
@@ -4983,7 +5173,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "",
                 source: None,
@@ -4995,7 +5184,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "user_controlled_template",
                 detail_hint: "",
                 source: None,
@@ -5007,7 +5195,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "application_context",
                 detail_hint: "",
                 source: None,
@@ -5019,7 +5206,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "application_context_template",
                 detail_hint: "",
                 source: None,
@@ -5064,7 +5250,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "",
                 source: None,
@@ -5076,7 +5261,6 @@ mod tests {
                 action: "inspect_first",
                 next_step: "details",
                 server_id: "s1".to_string(),
-                server_name: "server".to_string(),
                 interaction_mode: "model_controlled",
                 detail_hint: "",
                 source: None,
@@ -5116,7 +5300,6 @@ mod tests {
             action: "inspect_first",
             next_step: "details",
             server_id: "s1".to_string(),
-            server_name: "server".to_string(),
             interaction_mode: "model_controlled",
             detail_hint: "",
             source: None,
@@ -5371,6 +5554,8 @@ mod tests {
 
         let template_hints = default_workflow_hints_resource_template();
         assert!(template_hints.iter().any(|hint| hint.contains("resources/read")));
+        assert!(hints.skill.iter().any(|hint| hint.contains("resources/read")));
+        assert!(hints.skill.iter().any(|hint| hint.contains("mcpmate_profile_set")));
     }
 
     #[test]
@@ -5384,7 +5569,6 @@ mod tests {
             action: "inspect_first",
             next_step: "details",
             server_id: "server-1".to_string(),
-            server_name: "source-linked-server".to_string(),
             interaction_mode: "model_controlled",
             detail_hint: "Use details first.",
             source: Some("registry:filesystem".to_string()),
@@ -5400,7 +5584,6 @@ mod tests {
             action: "inspect_first",
             next_step: "details",
             server_id: "server-2".to_string(),
-            server_name: "local-server".to_string(),
             interaction_mode: "model_controlled",
             detail_hint: "Use details first.",
             source: None,

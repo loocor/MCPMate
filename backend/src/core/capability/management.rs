@@ -447,12 +447,6 @@ impl ProfileSurfaceManagement {
                     value: "default anchor cannot be deactivated".to_string(),
                 });
             }
-            if action == ProfileActivationAction::Activate && state.profile_mode == "workflow" {
-                return Err(CatalogError::InvalidSurfaceValue {
-                    field: "profile activation",
-                    value: "workflow Profiles cannot be activated before publication is supported".to_string(),
-                });
-            }
         }
 
         for profile_id in profile_ids {
@@ -505,9 +499,41 @@ impl ProfileSurfaceManagement {
             })
             .collect();
 
-        let consumer_ids =
-            SurfaceAuthoringLoader::load_activated_consumer_ids_in_transaction(&mut transaction, &default_config_mode)
-                .await?;
+        let workflow_changed = profile_ids.iter().any(|profile_id| {
+            states
+                .iter()
+                .any(|state| state.id == *profile_id && state.profile_mode == "workflow")
+        });
+        let capability_changed = profile_ids.iter().any(|profile_id| {
+            states
+                .iter()
+                .any(|state| state.id == *profile_id && state.profile_mode != "workflow")
+        });
+        let mut consumer_ids = Vec::new();
+        if capability_changed {
+            consumer_ids.extend(
+                SurfaceAuthoringLoader::load_activated_consumer_ids_in_transaction(
+                    &mut transaction,
+                    &default_config_mode,
+                )
+                .await?,
+            );
+        }
+        if workflow_changed {
+            consumer_ids.extend(
+                crate::core::profile::publication::load_unify_consumer_ids_in_transaction(
+                    &mut transaction,
+                    &default_config_mode,
+                )
+                .await
+                .map_err(|error| CatalogError::InvalidSurfaceValue {
+                    field: "unify consumers",
+                    value: error.to_string(),
+                })?,
+            );
+        }
+        consumer_ids.sort();
+        consumer_ids.dedup();
         let trigger =
             MaterializationTrigger::for_consumer("profile_activation_save", Uuid::new_v4().to_string(), actor);
         let mut materializations = Vec::with_capacity(consumer_ids.len());

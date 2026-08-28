@@ -3,9 +3,9 @@ import {
 	Check,
 	Edit3,
 	Eye,
-	Play,
+	Power,
+	PowerOff,
 	RefreshCw,
-	Square,
 	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -1863,24 +1863,8 @@ export function ProfileDetailPage() {
 					<TabsContent value="overview" className={DETAIL_TAB_CONTENT_CLASS}>
 						<div className={DETAIL_OVERVIEW_STACK_CLASS}>
 							<Card className={DETAIL_OVERVIEW_PINNED_SECTION_CLASS}>
-								<CardContent className="relative p-4">
-									{!isHostApp && !isCustomMode && (
-										<div className="absolute right-4 top-4">
-											<Button
-												variant="destructive"
-												size="sm"
-												onClick={() => setIsDeleteDialogOpen(true)}
-												disabled={!!suit?.is_default}
-												className="gap-2"
-											>
-												<Trash2 className="h-4 w-4" />
-												{t("profiles:detail.buttons.delete", {
-													defaultValue: "Delete",
-												})}
-											</Button>
-										</div>
-									)}
-									<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+								<CardContent className="p-4">
+									<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 										<div className="flex min-w-0 items-start gap-4">
 											<Avatar className="text-sm">
 												<AvatarFallback>
@@ -1960,14 +1944,12 @@ export function ProfileDetailPage() {
 												)}
 											</div>
 										</div>
-										{suitRole === "user" &&
-											!isHostApp &&
-											!isCustomMode &&
-											!isWorkflowProfile && (
-												<ButtonGroup className="ml-auto flex-shrink-0 flex-nowrap self-start">
+										{!isHostApp && !isCustomMode && (
+											<ButtonGroup className="ml-auto flex-shrink-0 flex-nowrap self-start">
+												{suitRole === "user" && (
 													<Button
-														variant="outline"
 														size="sm"
+														variant="outline"
 														onClick={handleSuitToggle}
 														disabled={
 															isDefaultAnchor ||
@@ -1976,21 +1958,51 @@ export function ProfileDetailPage() {
 														}
 														className={overviewActionButtonClass}
 													>
-														{suit?.is_active ? (
-															<Square className="h-4 w-4" />
-														) : (
-															<Play className="h-4 w-4" />
-														)}
-														{suit?.is_active
-															? t("profiles:detail.buttons.disable", {
-																defaultValue: "Disable",
-															})
-															: t("profiles:detail.buttons.enable", {
-																defaultValue: "Enable",
-															})}
+															{suit?.is_active ? (
+																<>
+																	<PowerOff className="h-4 w-4" />
+																	{t(
+																		isWorkflowProfile
+																			? "profiles:detail.buttons.unpublish"
+																			: "profiles:detail.buttons.disable",
+																		{
+																			defaultValue: isWorkflowProfile
+																				? "Unpublish"
+																				: "Disable",
+																		},
+																	)}
+																</>
+															) : (
+																<>
+																	<Power className="h-4 w-4" />
+																	{t(
+																		isWorkflowProfile
+																			? "profiles:detail.buttons.publish"
+																			: "profiles:detail.buttons.enable",
+																		{
+																			defaultValue: isWorkflowProfile
+																				? "Publish"
+																				: "Enable",
+																		},
+																	)}
+																</>
+															)}
 													</Button>
-												</ButtonGroup>
-											)}
+												)}
+												<Button
+													size="sm"
+													variant="destructive"
+													onClick={() => setIsDeleteDialogOpen(true)}
+													disabled={!!suit?.is_default}
+													className={overviewActionButtonClass}
+												>
+													<Trash2 className="h-4 w-4" />
+													{t("profiles:detail.buttons.delete", {
+														defaultValue: "Delete",
+													})}
+												</Button>
+											</ButtonGroup>
+										)}
 									</div>
 								</CardContent>
 							</Card>

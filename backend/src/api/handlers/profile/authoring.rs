@@ -20,6 +20,7 @@ pub async fn profile_authoring_view(
         server_ids: view.server_ids,
         profile_mode: view.profile_mode,
         skill_name: view.skill_name,
+        package_distribution: view.package_distribution.map(|value| value.as_str().to_string()),
     })))
 }
 
@@ -43,6 +44,21 @@ pub async fn profile_authoring_save(
         clone_from_id: request.clone_from_id,
         profile_mode: request.profile_mode,
         skill_name: request.skill_name,
+        package_distribution: match request
+            .package_distribution
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            None => None,
+            Some(value) => Some(
+                crate::core::profile::publication::SkillPackageDistribution::parse(value).ok_or_else(|| {
+                    profile_authoring_error(ProfileAuthoringError::InvalidRequest(format!(
+                        "invalid Skill package distribution '{value}'"
+                    )))
+                })?,
+            ),
+        },
         workflow_guidance: request.workflow_guidance,
     };
     let service = ProfileAuthoringService::with_skills_root(

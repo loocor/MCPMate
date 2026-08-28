@@ -431,6 +431,7 @@ pub struct ProfileAuthoringViewData {
     pub server_ids: Vec<String>,
     pub profile_mode: ProfileMode,
     pub skill_name: Option<String>,
+    pub package_distribution: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -449,6 +450,8 @@ pub struct ProfileAuthoringSaveReq {
     pub profile_mode: Option<ProfileMode>,
     #[serde(default)]
     pub skill_name: Option<String>,
+    #[serde(default)]
+    pub package_distribution: Option<String>,
     #[serde(default)]
     pub workflow_guidance: Option<WorkflowGuidanceSaveCommand>,
 }

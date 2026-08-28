@@ -44,6 +44,7 @@ export async function submitProfileAuthoring(
 export interface ProfileFormDraft {
 	name: string;
 	skill_name: string;
+	package_distribution: "" | "symlink" | "copy";
 	description: string;
 	suit_type: string;
 	priority: number;
@@ -55,6 +56,12 @@ export interface ProfileFormDraft {
 
 export function isValidSkillName(value: string): boolean {
 	return value.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+export function isCapabilityWorkingSetProfile(profile: {
+	profile_mode?: ProfileMode | null;
+}): boolean {
+	return profile.profile_mode !== "workflow";
 }
 
 export interface ProfileAuthoringResetIdentity {
@@ -116,13 +123,16 @@ export function buildProfileAuthoringSaveRequest({
 			draft.clone_from_id !== "none"
 				? draft.clone_from_id
 				: null,
-		...(draft.profile_mode === "workflow"
-			? {
-					profile_mode: "workflow" as const,
-					skill_name: draft.skill_name.trim(),
-					...(workflowGuidance ? { workflow_guidance: workflowGuidance } : {}),
-				}
-			: {}),
+			...(draft.profile_mode === "workflow"
+				? {
+						profile_mode: "workflow" as const,
+						skill_name: draft.skill_name.trim(),
+						package_distribution: draft.package_distribution
+							? draft.package_distribution
+							: null,
+						...(workflowGuidance ? { workflow_guidance: workflowGuidance } : {}),
+					}
+				: {}),
 	};
 }
 
@@ -172,8 +182,9 @@ export function profileFormDraftFromAuthoringView(
 ): ProfileFormDraft {
 	return {
 		name: view.profile.name,
-		skill_name: view.skill_name ?? "",
-		description: view.profile.description || "",
+			skill_name: view.skill_name ?? "",
+			package_distribution: view.package_distribution ?? "",
+			description: view.profile.description || "",
 		suit_type: view.profile.suit_type,
 		priority: view.profile.priority,
 		is_active: view.profile.is_active,

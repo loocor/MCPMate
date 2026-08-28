@@ -96,6 +96,16 @@ pub(super) async fn call_tool(
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if is_client_tool && is_builtin {
+            let workflow_direct = if matches!(client.config_mode.as_deref(), Some("unify")) {
+                match server.database.as_ref() {
+                    Some(database) => crate::core::profile::publication::load_published_direct_set(&database.pool)
+                        .await
+                        .map_err(|error| McpError::internal_error(error.to_string(), None))?,
+                    None => crate::core::profile::publication::PublishedWorkflowDirectSet::default(),
+                }
+            } else {
+                crate::core::profile::publication::PublishedWorkflowDirectSet::default()
+            };
             let builtin_context = ClientBuiltinContext {
                 client_id: client.client_id.clone(),
                 session_id: client.session_id.clone(),
@@ -104,6 +114,7 @@ pub(super) async fn call_tool(
                 selected_profile_ids: capability_config.selected_profile_ids.clone(),
                 custom_profile_id: capability_config.custom_profile_id.clone(),
                 unify_workspace: client.unify_workspace.clone(),
+                workflow_direct,
             };
 
             if let Some(result) = server

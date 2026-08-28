@@ -2645,16 +2645,18 @@ export const configSuitsApi = {
 			profile: ProfileApiRow;
 			server_ids: string[];
 			profile_mode?: ProfileMode;
-			skill_name?: string | null;
-		}>
-		>(`/api/mcp/profile/authoring/view?${query}`);
-		const data = extractApiData(response);
-		return {
-			profile: profileRowToConfigSuit(data.profile),
-			server_ids: data.server_ids,
-			profile_mode: data.profile_mode,
-			skill_name: data.skill_name,
-		};
+				skill_name?: string | null;
+				package_distribution?: "symlink" | "copy" | null;
+			}>
+			>(`/api/mcp/profile/authoring/view?${query}`);
+			const data = extractApiData(response);
+			return {
+				profile: profileRowToConfigSuit(data.profile),
+				server_ids: data.server_ids,
+				profile_mode: data.profile_mode,
+				skill_name: data.skill_name,
+				package_distribution: data.package_distribution ?? null,
+			};
 	},
 
 	saveAuthoring: async (

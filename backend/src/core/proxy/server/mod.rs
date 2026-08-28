@@ -5,6 +5,7 @@ mod gateway;
 mod prompts;
 mod resource_guide;
 mod resources;
+mod skill_resources;
 mod tools;
 
 pub use common::{

@@ -956,6 +956,7 @@ export interface ProfileAuthoringView {
   server_ids: string[];
   profile_mode?: ProfileMode;
   skill_name?: string | null;
+  package_distribution?: "symlink" | "copy" | null;
 }
 
 export interface ProfileAuthoringSaveRequest {
@@ -971,6 +972,7 @@ export interface ProfileAuthoringSaveRequest {
   clone_from_id: string | null;
   profile_mode?: ProfileMode;
   skill_name?: string | null;
+  package_distribution?: "symlink" | "copy" | null;
   workflow_guidance?: WorkflowGuidanceSaveRequest;
 }
 

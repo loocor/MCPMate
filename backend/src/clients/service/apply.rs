@@ -233,6 +233,7 @@ impl ClientConfigService {
         if let TemplateExecutionResult::Applied { backup_path, .. } = execution {
             let backup_policy = self.get_backup_policy(client_id).await?;
             self.enforce_backup_retention(client_id, &backup_policy).await?;
+            self.mount_published_skill_packages(client_id).await?;
             outcome.applied = true;
             outcome.backup_path = backup_path.clone();
         }
