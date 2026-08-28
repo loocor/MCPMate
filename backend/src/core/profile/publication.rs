@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use sqlx::{Pool, Sqlite, Transaction};
+use sqlx::{Pool, Row, Sqlite, Transaction};
 
 use super::workflow::WorkflowBindingPolicy;
 
@@ -103,7 +103,7 @@ impl SkillPackageDistribution {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, sqlx::FromRow)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct BindingRow {
     profile_id: String,
     ref_id: String,
@@ -111,6 +111,7 @@ struct BindingRow {
     kind: String,
     server_id: String,
     origin_key: String,
+    surface_name: String,
 }
 
 pub fn effective_direct_ref_ids(bindings: &[PublishedWorkflowDirectRef]) -> Vec<PublishedWorkflowDirectRef> {
@@ -129,10 +130,21 @@ pub fn effective_direct_ref_ids(bindings: &[PublishedWorkflowDirectRef]) -> Vec<
 
 const PUBLISHED_WORKFLOW_BINDINGS_SQL: &str = r#"
         SELECT binding.profile_id, binding.ref_id, binding.binding_policy, capability.kind,
-               capability.server_id, capability.origin_key
+               capability.server_id, capability.origin_key, version.canonical_record
         FROM workflow_profile_step_bindings binding
         JOIN profile ON profile.id = binding.profile_id
         JOIN capability_refs capability ON capability.ref_id = binding.ref_id
+        LEFT JOIN capability_ref_current current ON current.ref_id = capability.ref_id
+        JOIN capability_versions version ON version.capability_id = COALESCE(
+            current.capability_id,
+            (
+                SELECT previous.capability_id
+                FROM capability_versions previous
+                WHERE previous.ref_id = capability.ref_id
+                ORDER BY previous.first_observed_revision DESC, previous.capability_id
+                LIMIT 1
+            )
+        )
         WHERE profile.is_active = 1
           AND profile.profile_mode = 'workflow'
           AND capability.state <> 'retired'
@@ -153,10 +165,7 @@ async fn load_published_workflow_direct_refs_on<'e, E>(executor: E) -> Result<Ve
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
-    let rows = sqlx::query_as::<_, BindingRow>(PUBLISHED_WORKFLOW_BINDINGS_SQL)
-        .fetch_all(executor)
-        .await
-        .context("load published workflow bindings")?;
+    let rows = load_binding_rows(executor).await?;
     Ok(effective_direct_from_rows(rows))
 }
 
@@ -220,15 +229,12 @@ pub async fn load_published_skill_packages(pool: &Pool<Sqlite>) -> Result<Vec<Pu
     for (profile_id, title) in step_rows {
         step_titles.entry(profile_id).or_default().push(title);
     }
-    let binding_rows = sqlx::query_as::<_, BindingRow>(PUBLISHED_WORKFLOW_BINDINGS_SQL)
-        .fetch_all(pool)
-        .await
-        .context("load published skill bindings")?;
+    let binding_rows = load_binding_rows(pool).await.context("load published skill bindings")?;
     let mut reachability: BTreeMap<String, (Vec<PublishedSkillCapability>, Vec<PublishedSkillCapability>)> =
         BTreeMap::new();
     let mut policy_by_name: BTreeMap<(String, String, String), WorkflowBindingPolicy> = BTreeMap::new();
     for row in &binding_rows {
-        let key = (row.profile_id.clone(), row.kind.clone(), row.origin_key.clone());
+        let key = (row.profile_id.clone(), row.kind.clone(), row.surface_name.clone());
         let policy = WorkflowBindingPolicy::from_str_or_meta(&row.binding_policy);
         match policy_by_name.get(&key) {
             Some(WorkflowBindingPolicy::Direct) => {}
@@ -335,10 +341,48 @@ fn filter_unify_consumers(
         .collect()
 }
 
+async fn load_binding_rows<'e, E>(executor: E) -> Result<Vec<BindingRow>>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let rows = sqlx::query(PUBLISHED_WORKFLOW_BINDINGS_SQL)
+        .fetch_all(executor)
+        .await
+        .context("load published workflow bindings")?;
+    let mut bindings = Vec::with_capacity(rows.len());
+    for row in rows {
+        let canonical_record: Vec<u8> = row.try_get("canonical_record")?;
+        bindings.push(BindingRow {
+            profile_id: row.try_get("profile_id")?,
+            ref_id: row.try_get("ref_id")?,
+            binding_policy: row.try_get("binding_policy")?,
+            kind: row.try_get("kind")?,
+            server_id: row.try_get("server_id")?,
+            origin_key: row.try_get("origin_key")?,
+            surface_name: published_surface_name(&canonical_record)?,
+        });
+    }
+    Ok(bindings)
+}
+
+fn published_surface_name(canonical_record: &[u8]) -> Result<String> {
+    let record: mcpmate_capability_store::EffectiveCapabilityRecordV1 =
+        serde_json::from_slice(canonical_record).context("parse published capability record")?;
+    record.validate().map_err(|error| anyhow::Error::msg(error.to_string()))?;
+    Ok(record.definition.external_key())
+}
+
+pub async fn load_workflow_skill_names(pool: &Pool<Sqlite>) -> Result<Vec<String>> {
+    sqlx::query_scalar("SELECT skill_name FROM workflow_profile_skills ORDER BY skill_name")
+        .fetch_all(pool)
+        .await
+        .context("load workflow skill names")
+}
+
 fn effective_direct_from_rows(rows: Vec<BindingRow>) -> Vec<PublishedWorkflowDirectRef> {
     let mut by_name: BTreeMap<(String, String), WorkflowBindingPolicy> = BTreeMap::new();
     for row in &rows {
-        let name = (row.kind.clone(), row.origin_key.clone());
+        let name = (row.kind.clone(), row.surface_name.clone());
         let policy = WorkflowBindingPolicy::from_str_or_meta(&row.binding_policy);
         match by_name.get(&name) {
             Some(WorkflowBindingPolicy::Direct) => {}
@@ -350,7 +394,7 @@ fn effective_direct_from_rows(rows: Vec<BindingRow>) -> Vec<PublishedWorkflowDir
     let mut seen = BTreeSet::new();
     let mut directs = Vec::new();
     for row in rows {
-        let name = (row.kind.clone(), row.origin_key.clone());
+        let name = (row.kind.clone(), row.surface_name.clone());
         if by_name.get(&name) != Some(&WorkflowBindingPolicy::Direct) {
             continue;
         }
@@ -362,7 +406,7 @@ fn effective_direct_from_rows(rows: Vec<BindingRow>) -> Vec<PublishedWorkflowDir
             ref_id: row.ref_id,
             kind: row.kind,
             server_id: row.server_id,
-            external_key: row.origin_key,
+            external_key: row.surface_name,
         });
     }
     directs
@@ -414,6 +458,7 @@ mod tests {
                 kind: "tools".into(),
                 server_id: "srv".into(),
                 origin_key: "lookup".into(),
+                surface_name: "lookup".into(),
             },
             BindingRow {
                 profile_id: "wf-a".into(),
@@ -422,6 +467,7 @@ mod tests {
                 kind: "tools".into(),
                 server_id: "srv".into(),
                 origin_key: "lookup".into(),
+                surface_name: "lookup".into(),
             },
         ]);
         let set = published_direct_set(&directs);
@@ -438,6 +484,7 @@ mod tests {
             kind: "tools".into(),
             server_id: "srv".into(),
             origin_key: "lookup".into(),
+            surface_name: "lookup".into(),
         }]);
         assert!(published_direct_set(&directs).is_empty());
     }

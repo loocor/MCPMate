@@ -178,16 +178,10 @@ impl ProfileAuthoringService {
             .into_iter()
             .collect();
         self.validate_targets(&command).await?;
-        let profile_mode_before_transaction = resolve_profile_mode_before_transaction(&self.pool, &command).await?;
-        let default_config_mode = if profile_mode_before_transaction == ProfileMode::Capability {
-            Some(
-                load_default_config_mode(&self.pool)
-                    .await
-                    .map_err(ProfileAuthoringError::Persistence)?,
-            )
-        } else {
-            None
-        };
+        let _profile_mode_before_transaction = resolve_profile_mode_before_transaction(&self.pool, &command).await?;
+        let default_config_mode = load_default_config_mode(&self.pool)
+            .await
+            .map_err(ProfileAuthoringError::Persistence)?;
 
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let profile_mode = resolve_profile_mode_in_transaction(&mut transaction, &command).await?;
@@ -214,9 +208,7 @@ impl ProfileAuthoringService {
         let activation_changed = previous_active != command.is_active;
         let materializations = if profile_mode == ProfileMode::Capability {
             let coordinator = MaterializationCoordinator::new(self.pool.clone());
-            let default_config_mode = default_config_mode
-                .as_deref()
-                .expect("Capability Profile save loaded the default configuration mode");
+            let default_config_mode = default_config_mode.as_str();
             let consumer_ids =
                 load_affected_consumer_ids(&mut transaction, &profile_id, activation_changed, default_config_mode)
                     .await?;
@@ -241,9 +233,6 @@ impl ProfileAuthoringService {
             materializations
         } else if profile_mode == ProfileMode::Workflow {
             let coordinator = MaterializationCoordinator::new(self.pool.clone());
-            let default_config_mode = load_default_config_mode(&self.pool)
-                .await
-                .map_err(map_materialization_error)?;
             let consumer_ids = load_unify_consumer_ids_in_transaction(&mut transaction, &default_config_mode)
                 .await
                 .map_err(|error| ProfileAuthoringError::InvalidRequest(error.to_string()))?;

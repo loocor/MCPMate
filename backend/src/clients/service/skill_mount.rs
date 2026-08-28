@@ -4,7 +4,8 @@ use crate::clients::error::{ConfigError, ConfigResult};
 use crate::clients::service::ClientConfigService;
 use crate::common::paths::global_paths;
 use crate::core::profile::publication::{
-    PublishedSkillPackage, SkillPackageDistribution, load_published_skill_packages, skill_package_dir,
+    PublishedSkillPackage, SkillPackageDistribution, load_published_skill_packages, load_workflow_skill_names,
+    skill_package_dir,
 };
 
 impl ClientConfigService {
@@ -35,7 +36,16 @@ impl ClientConfigService {
         let packages = load_published_skill_packages(&self.db_pool)
             .await
             .map_err(|error| ConfigError::DataAccessError(error.to_string()))?;
-        mount_explicit_skill_packages(effective_mode.as_str(), &client_skills_dir, &skills_root, &packages)
+        let managed_skill_names = load_workflow_skill_names(&self.db_pool)
+            .await
+            .map_err(|error| ConfigError::DataAccessError(error.to_string()))?;
+        mount_explicit_skill_packages(
+            effective_mode.as_str(),
+            &client_skills_dir,
+            &skills_root,
+            &packages,
+            &managed_skill_names,
+        )
     }
 }
 
@@ -44,9 +54,21 @@ pub(crate) fn mount_explicit_skill_packages(
     client_skills_dir: &Path,
     skills_root: &Path,
     packages: &[PublishedSkillPackage],
+    managed_skill_names: &[String],
 ) -> ConfigResult<()> {
     if effective_mode != "unify" {
         return Ok(());
+    }
+    let selected = packages
+        .iter()
+        .filter(|package| package.distribution.is_some())
+        .map(|package| package.skill_name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    for skill_name in managed_skill_names {
+        if selected.contains(skill_name.as_str()) {
+            continue;
+        }
+        unmount_package(&client_skills_dir.join(skill_name))?;
     }
     for package in packages {
         let Some(distribution) = package.distribution else {
@@ -66,6 +88,23 @@ pub(crate) fn mount_explicit_skill_packages(
     Ok(())
 }
 
+fn unmount_package(destination: &Path) -> ConfigResult<()> {
+    if !destination.exists() && destination.symlink_metadata().is_err() {
+        return Ok(());
+    }
+    if destination.is_dir() && !destination.is_symlink() {
+        std::fs::remove_dir_all(destination)
+    } else {
+        std::fs::remove_file(destination)
+    }
+    .map_err(|error| {
+        ConfigError::DataAccessError(format!(
+            "Failed to remove Skill mount {}: {error}",
+            destination.display()
+        ))
+    })
+}
+
 fn mount_package(
     source: &Path,
     destination: &Path,
@@ -79,19 +118,7 @@ fn mount_package(
             ))
         })?;
     }
-    if destination.exists() || destination.symlink_metadata().is_ok() {
-        if destination.is_dir() && !destination.is_symlink() {
-            std::fs::remove_dir_all(destination)
-        } else {
-            std::fs::remove_file(destination)
-        }
-        .map_err(|error| {
-            ConfigError::DataAccessError(format!(
-                "Failed to replace Skill mount {}: {error}",
-                destination.display()
-            ))
-        })?;
-    }
+    unmount_package(destination)?;
     match distribution {
         SkillPackageDistribution::Symlink => {
             symlink_dir(source, destination)?;
@@ -206,22 +233,60 @@ mod tests {
             distribution: Some(SkillPackageDistribution::Copy),
         }];
 
-        mount_explicit_skill_packages("transparent", &client_skills_dir, &skills_root, &packages).unwrap();
+        mount_explicit_skill_packages(
+            "transparent",
+            &client_skills_dir,
+            &skills_root,
+            &packages,
+            &["release-flow".into()],
+        )
+        .unwrap();
         assert!(
             !client_skills_dir.join("release-flow").exists(),
             "Transparent clients must not receive a Skill mount"
         );
 
-        mount_explicit_skill_packages("hosted", &client_skills_dir, &skills_root, &packages).unwrap();
+        mount_explicit_skill_packages(
+            "hosted",
+            &client_skills_dir,
+            &skills_root,
+            &packages,
+            &["release-flow".into()],
+        )
+        .unwrap();
         assert!(
             !client_skills_dir.join("release-flow").exists(),
             "Hosted clients must not receive a Skill mount in this slice"
         );
 
-        mount_explicit_skill_packages("unify", &client_skills_dir, &skills_root, &packages).unwrap();
+        mount_explicit_skill_packages(
+            "unify",
+            &client_skills_dir,
+            &skills_root,
+            &packages,
+            &["release-flow".into()],
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(client_skills_dir.join("release-flow/SKILL.md")).unwrap(),
             "# skill"
+        );
+
+        let cleared = [crate::core::profile::publication::PublishedSkillPackage {
+            distribution: None,
+            ..packages[0].clone()
+        }];
+        mount_explicit_skill_packages(
+            "unify",
+            &client_skills_dir,
+            &skills_root,
+            &cleared,
+            &["release-flow".into()],
+        )
+        .unwrap();
+        assert!(
+            !client_skills_dir.join("release-flow").exists(),
+            "cleared distribution must unmount the Skill package"
         );
     }
 }

@@ -213,6 +213,12 @@ async fn published_workflow_directs_compile_for_unify_and_stay_out_of_hosted_sur
         "Meta lookup must stay off Unify Active Surface: {unify_refs:?}"
     );
     assert_eq!(published_ref_ids(&pool, "hosted-client").await, hosted_before);
+    let packages = load_published_skill_packages(&pool)
+        .await
+        .expect("load published packages");
+    assert_eq!(packages[0].direct_capabilities.len(), 1);
+    assert_eq!(packages[0].direct_capabilities[0].name, "server_a__search");
+    assert_eq!(packages[0].meta_capabilities[0].name, "server_a__lookup");
 
     WorkflowSpecificationService::new(pool.clone())
         .save(WorkflowSpecificationSaveCommand {

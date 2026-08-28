@@ -13,6 +13,15 @@ fn skill_resources_visible(config_mode: Option<&str>) -> bool {
     matches!(config_mode, Some("unify"))
 }
 
+fn is_published_skill_file(
+    skill_name: &str,
+    relative: &str,
+) -> bool {
+    !skill_name.is_empty()
+        && Path::new(skill_name).file_name().is_some_and(|name| name == skill_name)
+        && relative == "SKILL.md"
+}
+
 pub async fn listed_resources_for_client(
     pool: &Pool<Sqlite>,
     config_mode: Option<&str>,
@@ -55,7 +64,7 @@ async fn try_read(
 ) -> Option<Result<ReadResourceResult, ErrorData>> {
     let remainder = uri.strip_prefix(SKILL_URI_PREFIX)?;
     let (skill_name, relative) = remainder.split_once('/')?;
-    if skill_name.is_empty() || relative.contains("..") {
+    if !is_published_skill_file(skill_name, relative) {
         return Some(Err(ErrorData::invalid_params(
             "Skill resource URI is invalid".to_string(),
             None,
@@ -125,5 +134,25 @@ mod tests {
         listed_resources_for_client(&pool, Some("unify"))
             .await
             .expect_err("Unify must reach Skill package load");
+    }
+
+    #[tokio::test]
+    async fn absolute_skill_paths_are_rejected_before_read() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect");
+        let result = try_read_for_client(
+            &pool,
+            Path::new("/tmp"),
+            "skills://release-flow//etc/passwd",
+            Some("unify"),
+        )
+        .await
+        .expect("unify read is handled");
+        assert!(result.is_err(), "absolute Skill paths must not be read");
+        assert!(!is_published_skill_file("release-flow", "/etc/passwd"));
+        assert!(!is_published_skill_file("release-flow", "scripts/run.sh"));
+        assert!(is_published_skill_file("release-flow", "SKILL.md"));
     }
 }

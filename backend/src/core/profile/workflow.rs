@@ -178,8 +178,12 @@ impl WorkflowSpecificationService {
         &self,
         command: WorkflowSpecificationSaveCommand,
     ) -> Result<WorkflowSpecification, WorkflowSpecificationError> {
+        let default_config_mode = load_default_config_mode(&self.pool)
+            .await
+            .map_err(|error| WorkflowSpecificationError::SurfacePublication(error.to_string()))?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let specification = Self::save_in_transaction(&mut transaction, command, &self.pool).await?;
+        let specification =
+            Self::save_in_transaction(&mut transaction, command, &self.pool, &default_config_mode).await?;
         transaction.commit().await?;
         Ok(specification)
     }
@@ -188,6 +192,7 @@ impl WorkflowSpecificationService {
         transaction: &mut Transaction<'_, Sqlite>,
         command: WorkflowSpecificationSaveCommand,
         pool: &Pool<Sqlite>,
+        default_config_mode: &str,
     ) -> Result<WorkflowSpecification, WorkflowSpecificationError> {
         validate_save_command(&command)?;
         verify_workflow_profile(transaction, &command.profile_id).await?;
@@ -196,7 +201,14 @@ impl WorkflowSpecificationService {
 
         let specification_revision = save_specification(transaction, &command).await?;
         replace_steps(transaction, &command.profile_id, &command.steps, &available).await?;
-        rematerialize_unify_if_published(transaction, pool, &command.profile_id, "workflow_specification").await?;
+        rematerialize_unify_if_published(
+            transaction,
+            pool,
+            &command.profile_id,
+            "workflow_specification",
+            default_config_mode,
+        )
+        .await?;
         let specification = load_specification(transaction, &command.profile_id)
             .await?
             .expect("workflow specification exists after save");
@@ -321,6 +333,7 @@ async fn rematerialize_unify_if_published(
     pool: &Pool<Sqlite>,
     profile_id: &str,
     actor: &str,
+    default_config_mode: &str,
 ) -> Result<(), WorkflowSpecificationError> {
     let is_active: bool = sqlx::query_scalar("SELECT is_active FROM profile WHERE id = ?")
         .bind(profile_id)
@@ -330,10 +343,7 @@ async fn rematerialize_unify_if_published(
         return Ok(());
     }
     let coordinator = MaterializationCoordinator::new(pool.clone());
-    let default_config_mode = load_default_config_mode(pool)
-        .await
-        .map_err(|error| WorkflowSpecificationError::SurfacePublication(error.to_string()))?;
-    let consumer_ids = load_unify_consumer_ids_in_transaction(transaction, &default_config_mode)
+    let consumer_ids = load_unify_consumer_ids_in_transaction(transaction, default_config_mode)
         .await
         .map_err(|error| WorkflowSpecificationError::SurfacePublication(error.to_string()))?;
     let trigger = MaterializationTrigger::for_consumer(
@@ -343,7 +353,7 @@ async fn rematerialize_unify_if_published(
     );
     for consumer_id in consumer_ids {
         coordinator
-            .compile_consumer_in_transaction_with_default(transaction, &consumer_id, &default_config_mode, &trigger)
+            .compile_consumer_in_transaction_with_default(transaction, &consumer_id, default_config_mode, &trigger)
             .await
             .map_err(|error| WorkflowSpecificationError::SurfacePublication(error.to_string()))?;
     }

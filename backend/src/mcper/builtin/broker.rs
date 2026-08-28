@@ -1218,7 +1218,9 @@ impl BrokerService {
         if profile_capabilities_visible(context) {
             if let Ok(profiles) = profile_repo::get_all_profile(&self.database.pool).await {
                 for prof in profiles {
-                    if !matches!(prof.profile_type, ProfileType::Shared) {
+                    if !matches!(prof.profile_type, ProfileType::Shared)
+                        || matches!(prof.profile_mode, crate::config::models::ProfileMode::Workflow)
+                    {
                         continue;
                     }
                     let Some(ref profile_id) = prof.id else { continue };
@@ -1407,7 +1409,10 @@ impl BrokerService {
                             .await
                             .unwrap_or_default()
                             .into_iter()
-                            .filter(|p| matches!(p.profile_type, ProfileType::Shared))
+                            .filter(|p| {
+                                matches!(p.profile_type, ProfileType::Shared)
+                                    && !matches!(p.profile_mode, crate::config::models::ProfileMode::Workflow)
+                            })
                             .filter_map(|p| p.id.clone()),
                     );
                 }
@@ -1614,7 +1619,6 @@ impl BrokerService {
                             "description": package.description,
                             "skill_resource": skill_uri,
                             "read_with": "resources/read",
-                            "steps": package.step_titles,
                         }),
                         UcanDetailLevel::Full => serde_json::json!({
                             "description": package.description,
@@ -1656,6 +1660,7 @@ impl BrokerService {
                         .context("Failed to list profiles")?;
                     let profile = profiles.into_iter().find(|p| {
                         matches!(p.profile_type, ProfileType::Shared)
+                            && !matches!(p.profile_mode, crate::config::models::ProfileMode::Workflow)
                             && p.id.as_deref().is_some_and(|profile_id| profile_id == capability_name)
                     });
                     match profile {
